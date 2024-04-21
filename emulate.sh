@@ -24,9 +24,35 @@ declare -a RASPI_BUSTER_4_19_50=("Buster" "4.19.50" "" "https://downloads.raspbe
 declare -a RASPI_STRETCH_4_14_98=("Stretch" "4.14.98" "" "https://downloads.raspberrypi.com/raspbian/images/raspbian-2019-04-09/2019-04-08-raspbian-stretch.zip")
 declare -a RASPI_STRETCH_4_9_41=("Stretch" "4.9.41" "" "https://downloads.raspberrypi.com/raspbian/images/raspbian-2017-08-17/2017-08-16-raspbian-stretch.zip")
 
+# Function to monitor curl progress and update the progress bar
+curl_progress() { # filename, url, [ optional ] log_file=curl_output.log
+    local filename="${1:?$(print_error "curl_progress: filename paramater is null")}"
+    local url="${2:?$(print_error "curl_progress: url paramater is null")}"
+    local log_file=${3:-"curl_output.log"}
+
+    # Start curl in the background and redirect output to log file
+    curl -o $filename $url > "$log_file" 2>&1 &
+
+    # Get the PID of the curl process
+    local pid=$!
+
+    # Monitor the output log file of curl
+    while kill -0 "$pid" > /dev/null 2>&1; do
+        if [[ -f "$log_file" ]]; then
+            # Extract progress information from the log file
+            progress_line=$(tail -n 1 "$log_file" | awk '{print $1}')
+            if [[ -n $progress_line ]]; then
+                update_progress "$progress_line"
+            fi
+        fi
+        sleep 1
+    done
+
+}
+
 check_qemu_supports_rpi() { #rpi_version, rpi_arch
   local rpi_version="${1:?$(print_error "rpi_arch paramater is null")}"
-  local rpi_arch=${5:-"arm"}
+  local rpi_arch=${2:-"arm"}
 
   # Set qemu_system accoording to rpi_arch
     if [[ $rpi_arch == "arm" ]]; then
@@ -226,7 +252,7 @@ setup_raspios() { # rpi_arch, [optional] mount point, [optional] raspios url, [ 
   # Download Raspios
   if [[ ! -e "$raspios_location.xz" ]]; then
     print_info "Downloading Raspios...\n"
-    curl -o $raspios_location.xz $raspios_url
+    curl_progress $raspios_location.xz $raspios_url
     check_error "Could not download Raspios\n"
     print_verbose "Raspios successfully downloaded\n"
   else
@@ -246,60 +272,61 @@ setup_raspios() { # rpi_arch, [optional] mount point, [optional] raspios url, [ 
   print_info "Raspios successfully extracted"
 
   # Create temporary directories for mounting
-  mkdir -p $mount_point
-  mkdir -p $boot_mount_point
-  mkdir -p $root_mount_point
+  mkdir -p "$mount_point"
+  mkdir -p "$boot_mount_point"
+  mkdir -p "$root_mount_point"
 
   # Get Boot partition info
   boot_part_info=$(parted -s "$raspios_location" unit B print | awk '$0 ~ /fat32/ {print $1,$2,$3,$4,$5,$6}')
-  boot_start=$(echo "$boot_part_info" | sed -n "${i}p" | awk '{print $2}' | tr -d 'B')
-  boot_end=$(echo "$boot_part_info" | sed -n "${i}p" | awk '{print $3}' | tr -d 'B')
-  boot_size=$(echo "$boot_part_info" | sed -n "${i}p" | awk '{print $4}' | tr -d 'B')
-  boot_fs_type=$(echo "$boot_part_info" | sed -n "${i}p" | awk '{print $6}')
-  boot_loop_device=$(losetup -f) # Create a loop device for Boot partition
-  losetup -o $boot_start --sizelimit $boot_size $boot_loop_device "$raspios_location"
-  
+  boot_start=$(echo "$boot_part_info" | awk '{print $2}' | tr -d 'B')
+  boot_size=$(echo "$boot_part_info" | awk '{print $4}' | tr -d 'B')
+  boot_fs_type=$(echo "$boot_part_info" | awk '{print $6}')
+
+  # Setup loop device for Boot partition
+  boot_loop_device=$(udisksctl loop-setup --file "$raspios_location" | awk '{print $4}')
+
   # Mount Boot partition
-  mount -t vfat $boot_loop_device "$boot_mount_point"
+  udisksctl mount --block-device "$boot_loop_device" --options="fstype=vfat" --no-user-interaction
   check_error "Error mounting RaspiOS boot partition"
-  dosfslabel $boot_loop_device qemu-boot
-  print_info "Raspios boot partition succussfully mounted  at $boot_mount_point"
+  dosfslabel "$boot_loop_device" qemu-boot
+  print_info "Raspios boot partition successfully mounted at $boot_mount_point"
 
   # Get Root partition info
   root_part_info=$(parted -s "$raspios_location" unit B print | awk '$0 ~ /ext4/ {print $1,$2,$3,$4,$5,$6}')
-  root_start=$(echo "$root_part_info" | sed -n "${i}p" | awk '{print $2}' | tr -d 'B')
-  root_end=$(echo "$root_part_info" | sed -n "${i}p" | awk '{print $3}' | tr -d 'B')
-  root_size=$(echo "$root_part_info" | sed -n "${i}p" | awk '{print $4}' | tr -d 'B')
-  root_fs_type=$(echo "$root_part_info" | sed -n "${i}p" | awk '{print $6}')
-  root_loop_device=$(losetup -f)  # Create a loop device for Boot partition
-  losetup -o $root_start --sizelimit $root_size $root_loop_device "$raspios_location"
-  
-  # Mount Boot partition
-  mount -t ext4 $root_loop_device "$root_mount_point"
+  root_start=$(echo "$root_part_info" | awk '{print $2}' | tr -d 'B')
+  root_size=$(echo "$root_part_info" | awk '{print $4}' | tr -d 'B')
+  root_fs_type=$(echo "$root_part_info" | awk '{print $6}')
+
+  # Setup loop device for Root partition
+  root_loop_device=$(udisksctl loop-setup --file "$raspios_location" | awk '{print $4}')
+
+  # Mount Root partition
+  udisksctl mount --block-device "$root_loop_device" --options="fstype=ext4" --no-user-interaction
   check_error "Error mounting RaspiOS root partition"
-  e2label $root_loop_device qemu-root
-  print_info "Raspios root partition succussfully mounted  at $root_mount_point"
+  e2label "$root_loop_device" qemu-root
+  print_info "Raspios root partition successfully mounted at $root_mount_point"
 
   # Set rpi password and enable ssh
   password_hash=$(openssl passwd -6 "$rpi_password")
-  touch $boot_mount_point/ssh
-  echo "pi:$password_hash" | sudo tee $boot_mount_point/userconf
+  touch "$boot_mount_point/ssh"
+  echo "pi:$password_hash" > "$boot_mount_point/userconf"
 
   # Copy kernel, modules, device tree blobs and set active kernel in config.txt
-  copy_kernel_to_rpi $RPI_ARCH $boot_mount_point $root_mount_point
+  copy_kernel_to_rpi "$RPI_ARCH" "$boot_mount_point" "$root_mount_point"
 
   # Unmount boot and root of RaspiOS
-  umount $boot_mount_point
-  umount $root_mount_point
+  udisksctl unmount --block-device "$boot_loop_device"
+  udisksctl unmount --block-device "$root_loop_device"
 
   # Detach loop devices
-  losetup -d $boot_loop_device
-  losetup -d $root_loop_device
+  udisksctl loop-delete --block-device "$boot_loop_device"
+  udisksctl loop-delete --block-device "$root_loop_device"
 
   # Remove temporary directories
-  rm -r $boot_mount_point
-  rm -r $root_mount_point
-  rm -r $mount_point
+  rm -r "$boot_mount_point"
+  rm -r "$root_mount_point"
+  rm -r "$mount_point"
+
 
   QEMU_SD_LOCATION=$raspios_location
 } 

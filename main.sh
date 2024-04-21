@@ -189,6 +189,8 @@ while [[ $# -gt 0 ]]; do
     shift
 done
 
+RPI_VERSION=3
+
 # Prompt for Raspberry Pi version
 # while true; do
 #     read -p "Enter the version of Raspberry Pi (1-5): " RPI_VERSION
