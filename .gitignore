@@ -4,4 +4,4 @@ linux/*
 *.img
 *.xz
 *.dtb
-
+*.log

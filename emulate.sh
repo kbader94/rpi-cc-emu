@@ -39,14 +39,51 @@ curl_progress() { # filename, url, [ optional ] log_file=curl_output.log
     # Monitor the output log file of curl
     while kill -0 "$pid" > /dev/null 2>&1; do
         if [[ -f "$log_file" ]]; then
+            # Sanitize git_clone_output
+            cleaned_output=$(tr -d '\000' < "$log_file" | tr '\r' '\n')
+            # Extract progress information from the last line
+            last_line=$(echo "$cleaned_output" | tail -n 1)
             # Extract progress information from the log file
-            progress_line=$(tail -n 1 "$log_file" | awk '{print $1}')
-            if [[ -n $progress_line ]]; then
-                update_progress "$progress_line"
+            if [[ -n $last_line ]]; then
+              progress=$(echo "$last_line" | awk '{print $1}')
+              update_progress "$progress"
             fi
         fi
         sleep 1
     done
+    complete_progress
+}
+
+xzd_progress() {
+  local filename="${1:?$(print_error "xzd_progress: filename paramater is null")}"
+  local log_file=${2:-"xz_output.log"}
+
+  # Extract Raspios in bg and log output
+  xz -dvk "$filename" > "$log_file" 2>&1 &
+
+  # Get the PID of the curl process
+  local pid=$!
+
+  # Monitor the output log file of xz
+  while kill -0 "$pid" > /dev/null 2>&1; do
+    if [[ -f "$log_file" ]]; then
+      # Send ALRM to xz to refresh xz_output.log
+      # SEE: https://stackoverflow.com/questions/48452726/how-to-redirect-xzs-normal-stdout-when-do-tar-xz#:~:text=Thus%2C%20after%20stderr,%7D%202%3ELog_File
+      kill -ALRM "$pid" || break 
+
+      # Extract progress information from the last line
+      last_line=$(tail -n 1 "$log_file")
+
+      # Extract progress information from the log file
+      if [[ -n $last_line ]]; then
+        progress=$(echo "$last_line" | awk '{print $2}')
+        update_progress "$progress"
+      fi
+
+    fi
+    sleep 1
+  done
+  complete_progress
 
 }
 
@@ -251,25 +288,23 @@ setup_raspios() { # rpi_arch, [optional] mount point, [optional] raspios url, [ 
 
   # Download Raspios
   if [[ ! -e "$raspios_location.xz" ]]; then
-    print_info "Downloading Raspios...\n"
+    print_info "Downloading Raspios..."
     curl_progress $raspios_location.xz $raspios_url
-    check_error "Could not download Raspios\n"
-    print_verbose "Raspios successfully downloaded\n"
+    check_error "Could not download Raspios"
+    print_success "Raspios successfully downloaded"
   else
-    print_verbose "Raspios already exists, skipping download\n"
+    print_verbose "Raspios.img.xz already exists, skipping download"
   fi
 
   # Extract Raspios
-  print_warning "This may take a while"
-  xz_output=$(xz -d -k "$raspios_location.xz" 2>&1)  # Capture both stdout and stderr
-  xz_pid=$!  # Save the PID of the background process
-  wait "$xz_pid"  # Wait for the xz extraction to finish
-  # Check if the output contains the text "file exists"
-  if [[ "$xz_output" != *"File exists"* ]]; then
-      # If the output doesn't contain "file exists", treat it as an error
-      check_error "Error while extracting Raspios: $xz_output"
+  if [[ ! -e "$raspios_location" ]]; then
+    print_info "Extracting Raspios..."
+    xzd_progress "$raspios_location.xz"
+    check_error "Could not extract Raspios"
+    print_success "Raspios successfully downloaded"
+  else
+    print_verbose "Raspios.img already exists, skipping extraction"
   fi
-  print_info "Raspios successfully extracted"
 
   # Create temporary directories for mounting
   mkdir -p "$mount_point"
@@ -288,7 +323,7 @@ setup_raspios() { # rpi_arch, [optional] mount point, [optional] raspios url, [ 
   # Mount Boot partition
   udisksctl mount --block-device "$boot_loop_device" --options="fstype=vfat" --no-user-interaction
   check_error "Error mounting RaspiOS boot partition"
-  dosfslabel "$boot_loop_device" qemu-boot
+  dosfslabel "$boot_loop_device" qemu-boot # does this even work if not root?
   print_info "Raspios boot partition successfully mounted at $boot_mount_point"
 
   # Get Root partition info
@@ -326,7 +361,6 @@ setup_raspios() { # rpi_arch, [optional] mount point, [optional] raspios url, [ 
   rm -r "$boot_mount_point"
   rm -r "$root_mount_point"
   rm -r "$mount_point"
-
 
   QEMU_SD_LOCATION=$raspios_location
 } 

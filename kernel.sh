@@ -268,7 +268,7 @@ build_kernel() { # rpi_arch, cross_compiler, kernel_config, [ true | false ] deb
   print_info "Building linux kernel"
 
   # Build the Linux kernel in bg, output to log and monitor 
-  # if [[ $ARG_NO_KERNEL_BUILD == false ]]; then 
+  if [[ $DEBUG == false ]]; then 
     make ARCH="$rpi_arch" -j"$CORES" CROSS_COMPILE="$cross_compiler" "$KERNEL_IMAGE_TYPE" modules dtbs > $MAKE_OUTPUT 2>&1 &
     local pid=$!
 
@@ -287,7 +287,7 @@ build_kernel() { # rpi_arch, cross_compiler, kernel_config, [ true | false ] deb
     done
 
     check_error "Failed to build the Linux kernel"
-  # fi
+  fi
   complete_progress
   print_success "Kernel compilation completed successfully"
   cd ../
