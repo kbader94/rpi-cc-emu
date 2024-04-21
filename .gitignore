@@ -1,0 +1,5 @@
+qemu-*
+linux
+*.img
+*.img.xz
+*.dtb
