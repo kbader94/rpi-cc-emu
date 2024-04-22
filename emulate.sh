@@ -24,7 +24,16 @@ declare -a RASPI_BUSTER_4_19_50=("Buster" "4.19.50" "" "https://downloads.raspbe
 declare -a RASPI_STRETCH_4_14_98=("Stretch" "4.14.98" "" "https://downloads.raspberrypi.com/raspbian/images/raspbian-2019-04-09/2019-04-08-raspbian-stretch.zip")
 declare -a RASPI_STRETCH_4_9_41=("Stretch" "4.9.41" "" "https://downloads.raspberrypi.com/raspbian/images/raspbian-2017-08-17/2017-08-16-raspbian-stretch.zip")
 
-# Function to monitor curl progress and update the progress bar
+is_device_mounted() {
+    local loop_device="$1"
+    if mount | grep -q "$(readlink -f "$loop_device")"; then
+        echo true
+    else
+        echo false 
+    fi
+}
+
+# Initiate curl download, monitor progress and update the progress bar
 curl_progress() { # filename, url, [ optional ] log_file=curl_output.log
     local filename="${1:?$(print_error "curl_progress: filename paramater is null")}"
     local url="${2:?$(print_error "curl_progress: url paramater is null")}"
@@ -54,6 +63,7 @@ curl_progress() { # filename, url, [ optional ] log_file=curl_output.log
     complete_progress
 }
 
+# Initiate xz, monitor progress and update the progress bar 
 xzd_progress() {
   local filename="${1:?$(print_error "xzd_progress: filename paramater is null")}"
   local log_file=${2:-"xz_output.log"}
@@ -67,9 +77,10 @@ xzd_progress() {
   # Monitor the output log file of xz
   while kill -0 "$pid" > /dev/null 2>&1; do
     if [[ -f "$log_file" ]]; then
+      sleep 0.5
       # Send ALRM to xz to refresh xz_output.log
       # SEE: https://stackoverflow.com/questions/48452726/how-to-redirect-xzs-normal-stdout-when-do-tar-xz#:~:text=Thus%2C%20after%20stderr,%7D%202%3ELog_File
-      kill -ALRM "$pid" || break 
+      kill -ALRM "$pid"
 
       # Extract progress information from the last line
       last_line=$(tail -n 1 "$log_file")
@@ -77,11 +88,12 @@ xzd_progress() {
       # Extract progress information from the log file
       if [[ -n $last_line ]]; then
         progress=$(echo "$last_line" | awk '{print $2}')
-        update_progress "$progress"
+        if [[ $(is_float $progress) ]]; then
+          update_progress "$progress"
+        fi
       fi
 
     fi
-    sleep 1
   done
   complete_progress
 
@@ -259,6 +271,40 @@ emulate_kernel() { # qemu_machine, cpu, mem, dtb_location, raspios_location, ker
 
 }
 
+get_loop_device(){ # raspios_absolute_location, offset, size
+  local raspios_absolute_location="${1:?$(print_error "raspios_absolute_location parameter is null or unset")}"
+  local offset="${2:?$(print_error "offset is null or unset")}"
+  local size="${3:?$(print_error "size is null or unset")}"
+
+  # Get loop devs with matching backfile, offset, and size
+  local loop_devs_info=$(losetup --list --output NAME,BACK-FILE,OFFSET,SIZELIMIT)
+  local loop_devs=$(echo "$loop_devs_info" | awk -v file_location="$raspios_absolute_location" -v offset="$offset" -v size_limit="$size" '$2 == file_location && $3 == offset && $4 == size_limit {print $1}')
+
+  # Iterate through the list of loop devices
+  for loop_dev in $loop_devs; do
+    # Check if the loop device is mounted
+    if grep -qs "^$loop_dev " /proc/mounts; then
+      echo "$loop_dev"
+      return
+    fi
+  done
+
+  # Create new loop device if none exist
+  if [[ -z $loop_devs ]]; then
+    # Create loop device via udisksctl
+    loop_output=$(udisksctl loop-setup --file "$raspios_location" --offset "$boot_start" --size "$boot_size")
+    if [[ "$loop_output" =~ "Mapped file $raspios_location as" ]]; then
+      loop_devs=$(echo $loop_output | awk '{print $5}')
+    else
+      print_error "Could not set up loop device"
+    fi
+  fi
+
+  # Return the first loop device found
+  echo "$loop_devs" | head -n 1
+}
+
+
   # For qemu, in addition to a kernel and dtb's, we need a rootfs
   # We will get our rootfs from the specified RaspiOS.img
   # download the [latest] raspios image and extract
@@ -276,6 +322,7 @@ setup_raspios() { # rpi_arch, [optional] mount point, [optional] raspios url, [ 
   local raspios_location="raspios-$rpi_arch.img"
   local boot_mount_point="$mount_point/boot"
   local root_mount_point="$mount_point/root"
+  local raspios_absolute_location=$(readlink -f "$raspios_location")
 
   # Set raspios_url depending on arch
   if [[ ! $raspios_url ]]; then
@@ -306,25 +353,23 @@ setup_raspios() { # rpi_arch, [optional] mount point, [optional] raspios url, [ 
     print_verbose "Raspios.img already exists, skipping extraction"
   fi
 
-  # Create temporary directories for mounting
-  mkdir -p "$mount_point"
-  mkdir -p "$boot_mount_point"
-  mkdir -p "$root_mount_point"
-
-  # Get Boot partition info
+  # Get raspios.img bootfs info
   boot_part_info=$(parted -s "$raspios_location" unit B print | awk '$0 ~ /fat32/ {print $1,$2,$3,$4,$5,$6}')
   boot_start=$(echo "$boot_part_info" | awk '{print $2}' | tr -d 'B')
   boot_size=$(echo "$boot_part_info" | awk '{print $4}' | tr -d 'B')
   boot_fs_type=$(echo "$boot_part_info" | awk '{print $6}')
+  
+  # Get loop device for raspios.img bootfs
+  boot_loop_device=$(get_loop_device $raspios_absolute_location $boot_start $boot_size)
+  
+  # Mount Boot loop device
+  if [[ $(is_device_mounted $boot_loop_device) == false ]]; then
 
-  # Setup loop device for Boot partition
-  boot_loop_device=$(udisksctl loop-setup --file "$raspios_location" | awk '{print $4}')
+    udisksctl mount --block-device "$boot_loop_device" --no-user-interaction
+    check_error "Error mounting RaspiOS boot partition"
+    print_info "Raspios boot partition successfully mounted at $boot_mount_point"
 
-  # Mount Boot partition
-  udisksctl mount --block-device "$boot_loop_device" --options="fstype=vfat" --no-user-interaction
-  check_error "Error mounting RaspiOS boot partition"
-  dosfslabel "$boot_loop_device" qemu-boot # does this even work if not root?
-  print_info "Raspios boot partition successfully mounted at $boot_mount_point"
+  fi
 
   # Get Root partition info
   root_part_info=$(parted -s "$raspios_location" unit B print | awk '$0 ~ /ext4/ {print $1,$2,$3,$4,$5,$6}')

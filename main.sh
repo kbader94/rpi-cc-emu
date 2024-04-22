@@ -98,6 +98,18 @@ is_integer() {
     fi
 }
 
+# Check whether variable is float
+is_float() {
+    local value="$1"
+    # Regular expression to match a float number
+    local float_regex='^[0-9]+([.][0-9]+)?$'
+    if [[ $value =~ $float_regex ]]; then
+        return 0  # True
+    else
+        return 1  # False
+    fi
+}
+
 # Update progress to 100 and skip line
 complete_progress() {
   update_progress 100

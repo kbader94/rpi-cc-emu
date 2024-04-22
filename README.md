@@ -35,3 +35,9 @@
 --debug    Runs the script in debug mode, any exceptions are ignored and the script continues to execute. For script development use             only.
 
 --verbose  Output extra information such as variable and parameter values 
+
+## Development and Bibliography
+
+This script is based on the [official Raspberry PI cross compilation guide](
+https://www.raspberrypi.com/documentation/computers/linux_kernel.html#:~:text=freshly%2Dcompiled%20kernel.-,Cross%2Dcompiling%20the%20kernel,make%20ARCH%3Darm64%20CROSS_COMPILE%3Daarch64%2Dlinux%2Dgnu%2D%20Image%20modules%20dtbs,-Install%20directly%20onto).
+
