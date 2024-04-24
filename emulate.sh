@@ -55,12 +55,12 @@ curl_progress() { # filename, url, [ optional ] log_file=curl_output.log
             # Extract progress information from the log file
             if [[ -n $last_line ]]; then
               progress=$(echo "$last_line" | awk '{print $1}')
-              update_progress "$progress"
+              update_progressbar "$progress"
             fi
         fi
         sleep 1
     done
-    complete_progress
+    complete_progressbar
 }
 
 # Initiate xz, monitor progress and update the progress bar 
@@ -89,13 +89,13 @@ xzd_progress() {
       if [[ -n $last_line ]]; then
         progress=$(echo "$last_line" | awk '{print $2}')
         if [[ $(is_float $progress) ]]; then
-          update_progress "$progress"
+          update_progressbar "$progress"
         fi
       fi
 
     fi
   done
-  complete_progress
+  complete_progressbar
 
 }
 

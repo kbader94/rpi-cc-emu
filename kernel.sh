@@ -1,14 +1,11 @@
 #! /bin/bash
 
 # Kernel build args
-CORES=$(grep -c '^processor' /proc/cpuinfo)
 RPI_VERSION=""
 RPI_ARCH=""
 RPI_CC=""
 KERNEL_CONFIG=""
 KERNEL_NAME=""
-KERNEL_IMAGE_TYPE=""
-BUILD_LOG="build_output.log"
 
 line_of_text_in_file() {
   local search_text="$1"
@@ -28,22 +25,28 @@ lines_in_file() {
   echo "$line_count"
 }
 
-progress_from_kernel_build_output() {
-  local kernel_build_text="$1"
-  local line_num=$(line_of_text_in_file "$kernel_build_text" "../$BUILD_LOG")
+calculate_progress_from_prev_log() {
+  local log_entry="${1:?$(print_error "log_entry paramater is null")}"
+  local prev_log="${2:?$(print_error "prev_log paramater is null")}"
+  local line_num=$(line_of_text_in_file "$log_entry" "$prev_log")
+
+  if [[ ! -e "$prev_log" ]]; then
+    echo "-1"  # Previous log does not exist
+    return
+  fi
 
   if [[ $line_num -lt 0 ]]; then
-    echo "-1"
+    echo "-1" # Line not found
     return
   fi
 
-  local total_lines=$(lines_in_file "../$BUILD_LOG")
-  if [[ $total_lines -lt 0 ]]; then
-    echo "-1"
-    return
+  local total_lines=$(lines_in_file "$prev_log")
+  if [[ $total_lines -lt 1 ]]; then
+    echo "-1" # Previous log is empty
+    return 
   fi
 
-  local progress_dec=$(echo "scale=6; $line_num / $total_lines" | bc)
+  local progress_dec=$(echo "scale=4; $line_num / $total_lines" | bc)
   if [[ $(echo "$progress_dec < 0" | bc) -eq 1 ]]; then
     echo "-1"
     return
@@ -53,12 +56,75 @@ progress_from_kernel_build_output() {
   echo "$return_progress"
 }
 
+build_kernel_show_progressbar() {
+  local rpi_arch="${1:?$(print_error "rpi_arch paramater is null")}"
+  local cross_compiler="${2:?$(print_error "cross_compiler parameter is null")}"
+  local cpu_cores=$(grep -c '^processor' /proc/cpuinfo)
+
+  # Copy previous log for progress comp
+  cp ../kernel_build.log ../kernel_build.log.old
+
+  # Build the Linux kernel in bg, output to log and monitor
+  print_info "Building linux kernel"
+  make ARCH="$rpi_arch" -j"$cpu_cores" CROSS_COMPILE="$cross_compiler" Image modules dtbs >../kernel_build.log 2>&1 &
+  local pid=$!
+
+  # Monitor the progress and update the status bar
+  while kill -0 $pid >/dev/null 2>&1; do
+    sleep 1
+
+    # Sanitize git_clone_output
+    local cleaned_output=$(tr -d '\000' <../kernel_build.log)
+    # Extract progress information from the last line
+    local last_line=$(echo "$cleaned_output" | tail -n 1)
+
+    # Calculate progress from previous log and update progress bar
+    local progress=$(calculate_progress_from_prev_log "$last_line" ../kernel_build.log.old)
+    update_progressbar $progress
+  done
+
+  check_error "Failed to build the Linux kernel"
+  complete_progressbar
+  print_success "Kernel compilation completed successfully"
+}
+
+install_kernel_show_progressbar() {
+  local rpi_arch="${1:?$(print_error "rpi_arch paramater is null")}"
+  local cross_compiler="${2:?$(print_error "cross_compiler parameter is null")}"
+
+  # Build modules
+  make ARCH="$rpi_arch" CROSS_COMPILE="$cross_compiler" INSTALL_MOD_PATH=build modules_install  >kernel_install.log 2>&1 &
+  local pid=$!
+
+  # Monitor the progress and update the status bar
+  while kill -0 $pid >/dev/null 2>&1; do
+    sleep 1
+
+    # Sanitize git_clone_output
+    local cleaned_output=$(tr -d '\000' <kernel_install.log)
+    # Extract progress information from the last line
+    local last_line=$(echo "$cleaned_output" | tail -n 1)
+    # Check if last_line contains the text "build/lib/modules/"
+    if [[ $last_line == *"build/lib/modules/"* ]]; then
+      # Replace the kernel name with * to match any previous kernel name
+      last_line=$(echo "$last_line" | sed 's@build/lib/modules/[^/]*@build/lib/modules/*/@g')
+    fi
+    # Update progress bar based on kernel build output
+    local progress=$(calculate_progress_from_prev_log "$last_line" kernel_build.log)
+    update_progressbar $progress
+  done
+
+  check_error "Failed to build the Linux kernel"
+  complete_progressbar
+  print_success "Kernel compilation completed successfully"
+}
+
 # Check if option is present and enabled in .config
 config_option_enabled() {
   grep -q "^$1=" .config
 }
 
-# Check if option is present but disables in .config
+# Check if option is present but disabled in .config
 config_option_disabled() {
   grep -q "$1 is not set" .config
 }
@@ -130,7 +196,7 @@ get_kernel_build_args() { # rpi_version, [optional] rpi_arch
     print_error "Invalid Raspberry Pi architecture: $arch"
   fi
 
-  print_verbose "CORES: $CORES"
+  print_verbose "cpu_cores: $cpu_cores"
   print_verbose "RPI_VERSION: $RPI_VERSION"
   print_verbose "RPI_ARCH: $RPI_ARCH"
   print_verbose "RPI_CC: $RPI_CC"
@@ -178,7 +244,7 @@ git_kernel() { # [ optional ] linux_version, [ optional ] linux_repo
         # Update progress bar
         if [[ $last_line =~ "Receiving objects:" && $last_line =~ ([0-9]+)% ]]; then
           progress="${BASH_REMATCH[1]}"
-          update_progress "$progress"
+          update_progressbar "$progress"
         fi
 
       fi
@@ -187,23 +253,20 @@ git_kernel() { # [ optional ] linux_version, [ optional ] linux_repo
 
     # git finished
     check_error "Could not download kernel"
-    complete_progress
+    complete_progressbar
     print_success "Kernel acquired"
 
   fi
 
 }
 
-# Function to build the Linux kernel
+# Function to configure and build the Linux kernel
 build_kernel() { # rpi_arch, cross_compiler, kernel_config, [ true | false ] debug config, [ optional ] kernel_name
   local rpi_arch="${1:?$(print_error "rpi_arch paramater is null")}"
   local cross_compiler="${2:?$(print_error "cross_compiler parameter is null")}"
   local kernel_config="${3:?$(print_error "kernel_config parameter is null")}"
   local use_debug_config=${4:-false}
   local kernel_name=${5:-"rpi-qemu"}
-
-  # Check and install dependencies
-  check_packages
 
   # Change to linux dir
   cd linux
@@ -239,41 +302,9 @@ build_kernel() { # rpi_arch, cross_compiler, kernel_config, [ true | false ] deb
   change_config_option "CONFIG_LOCALVERSION" "-$KERNEL_NAME"
   # sed -i "s/^CONFIG_LOCALVERSION=\".*\"/CONFIG_LOCALVERSION=\"-v8-uartioctl-cc-$kernel_name\"/" .config
 
-  # Set zimage according to arch
-  if [[ $rpi_arch == "arm" ]]; then
-    KERNEL_IMAGE_TYPE=zImage
-  else
-    KERNEL_IMAGE_TYPE=Image
-  fi
+  build_kernel_show_progressbar $rpi_arch $cross_compiler
 
-  print_info "Building linux kernel"
-
-  # Build the Linux kernel in bg, output to log and monitor
-  # if [[ $DEBUG == false ]]; then
-  make ARCH="$rpi_arch" -j"$CORES" CROSS_COMPILE="$cross_compiler" "$KERNEL_IMAGE_TYPE" modules dtbs >$BUILD_LOG 2>&1 &
-  local build_pid=$!
-
-  # Monitor the progress and update the status bar
-  while kill -0 $build_pid >/dev/null 2>&1; do
-    sleep 1
-
-    # Sanitize git_clone_output
-    local cleaned_output=$(tr -d '\000' <make_output.log)
-    # Extract progress information from the last line
-    local last_line=$(echo "$cleaned_output" | tail -n 1)
-
-    # Update progress bar based on kernel build output
-    local progress=$(progress_from_kernel_build_output "$last_line")
-    update_progress $progress
-  done
-
-  check_error "Failed to build the Linux kernel"
-  # fi
-  complete_progress
-  print_success "Kernel compilation completed successfully"
-
-  # Build modules
-  make ARCH="$rpi_arch" CROSS_COMPILE="$cross_compiler" INSTALL_MOD_PATH=build modules_install
+  install_kernel_show_progressbar $rpi_arch $cross_compiler
 
   cd ../
 }
@@ -284,15 +315,8 @@ copy_kernel_to_rpi() { #rpi-arch, boot_mount, root_mount
   local boot_mount="${2:?$(print_error "boot_mount parameter is null or unset")}"
   local root_mount="${3:?$(print_error "root_mount parameter is null or unset")}"
 
-  # Set zimage according to arch
-  if [[ $rpi_arch == "arm" ]]; then
-    KERNEL_IMAGE_TYPE=zImage
-  else
-    KERNEL_IMAGE_TYPE=Image
-  fi
-
   # Copy kernel image
-  cp "linux/arch/$rpi_arch/boot/$KERNEL_IMAGE_TYPE" "$boot_mount/$kernel_name.img"
+  cp "linux/arch/$rpi_arch/boot/Image" "$boot_mount/$kernel_name.img"
   check_error "Could not copy kernel image to raspios"
   # Copy Device Tree Blobs
   cp "linux/arch/$rpi_arch/boot/dts/broadcom/"*.dtb "$boot_mount/"

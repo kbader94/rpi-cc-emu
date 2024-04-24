@@ -111,13 +111,13 @@ is_float() {
 }
 
 # Update progress to 100 and skip line
-complete_progress() {
-  update_progress 100
+complete_progressbar() {
+  update_progressbar 100
   printf "\n"
 }
 
 # Function to update progress with a progress bar
-update_progress() { # float progress, [ optional ] str text, [ optional ] color=ANSI_BLUE, [ optional ] size=50 
+update_progressbar() { # float progress, [ optional ] str text, [ optional ] color=ANSI_BLUE, [ optional ] size=50 
     local progress="$1"
     local text="$2" # Text of progress bar
     local color=${3:-$ANSI_BLUE} # Color of progress bar
