@@ -271,38 +271,47 @@ emulate_kernel() { # qemu_machine, cpu, mem, dtb_location, raspios_location, ker
 
 }
 
-get_loop_device(){ # raspios_absolute_location, offset, size
+get_loop_dev_from_img_partition(){ # raspios_absolute_location, offset, size
   local raspios_absolute_location="${1:?$(print_error "raspios_absolute_location parameter is null or unset")}"
   local offset="${2:?$(print_error "offset is null or unset")}"
   local size="${3:?$(print_error "size is null or unset")}"
 
-  # Get loop devs with matching backfile, offset, and size
+  # This script seems dumb, but hear me out... The point is to check if raspios is already mounted
+  # BUT mount doesn't have the disk image so losetup must be used to check which loop devices have
+  # raspios.img as a BACK-FILE, with matching offsets and sizes to differentiate bootfs and rootfs
+  # THEN we can check if the loop device is mounted
+
+  # Get existing loop devs with matching backfile, offset, and size
   local loop_devs_info=$(losetup --list --output NAME,BACK-FILE,OFFSET,SIZELIMIT)
   local loop_devs=$(echo "$loop_devs_info" | awk -v file_location="$raspios_absolute_location" -v offset="$offset" -v size_limit="$size" '$2 == file_location && $3 == offset && $4 == size_limit {print $1}')
 
-  # Iterate through the list of loop devices
+  # Iterate through the list of loop devices with matching back-file, offset, and sizelimit
   for loop_dev in $loop_devs; do
     # Check if the loop device is mounted
-    if grep -qs "^$loop_dev " /proc/mounts; then
-      echo "$loop_dev"
+    if grep -qs "$loop_dev " /proc/mounts; then
+      # Use mounted loop device
+      echo $loop_dev
       return
     fi
   done
 
-  # Create new loop device if none exist
-  if [[ -z $loop_devs ]]; then
-    # Create loop device via udisksctl
-    loop_output=$(udisksctl loop-setup --file "$raspios_location" --offset "$boot_start" --size "$boot_size")
-    if [[ "$loop_output" =~ "Mapped file $raspios_location as" ]]; then
-      loop_devs=$(echo $loop_output | awk '{print $5}')
-    else
-      print_error "Could not set up loop device"
-    fi
+  # Otherwise create loop device via udisksctl
+  loop_output=$(udisksctl loop-setup --file "$raspios_location" --offset "$offset" --size "$size")
+  if [[ "$loop_output" =~ "Mapped file $raspios_location as" ]]; then
+    # Use this loop device
+    loop_dev=$(echo $loop_output | awk '{print $5}')
+    echo $loop_dev
+  else
+    print_error "Could not set up loop device"
   fi
 
-  # Return the first loop device found
-  echo "$loop_devs" | head -n 1
 }
+
+get_mount_point_from_loop_dev() { # loop_dev
+  local loop_dev="${1:?$(print_error "loop_dev parameter is null or unset")}"
+  local mount_point=$(grep -w "$loop_dev" /proc/mounts | awk '{print $2}')
+  echo $mount_point
+} 
 
 
   # For qemu, in addition to a kernel and dtb's, we need a rootfs
@@ -314,15 +323,16 @@ get_loop_device(){ # raspios_absolute_location, offset, size
   # set kernel as active on raspios.img
   # umount raspios.img
   # Side note: raspios.img is now configured with newly built kernel
-setup_raspios() { # rpi_arch, [optional] mount point, [optional] raspios url, [ optional ] rpi_password
+setup_raspios() { # rpi_arch, [optional] raspios_img_filename, [optional] raspios url, [ optional ] rpi_password
   local rpi_arch=${1:-"arm64"}
-  local mount_point=${2:-"/tmp/rpi"} # temporary mount point
+  local raspios_location=${2:-"raspios-$rpi_arch.img"}
   local raspios_url="$3" # Set below, according to arch
   local rpi_password=${4:-"raspberry"}
-  local raspios_location="raspios-$rpi_arch.img"
-  local boot_mount_point="$mount_point/boot"
-  local root_mount_point="$mount_point/root"
   local raspios_absolute_location=$(readlink -f "$raspios_location")
+  local boot_loop_dev=""
+  local root_loop_dev=""
+  local boot_mount_point=""
+  local root_mount_point=""
 
   # Set raspios_url depending on arch
   if [[ ! $raspios_url ]]; then
@@ -353,41 +363,28 @@ setup_raspios() { # rpi_arch, [optional] mount point, [optional] raspios url, [ 
     print_verbose "Raspios.img already exists, skipping extraction"
   fi
 
-  # Get raspios.img bootfs info
+  # Get raspios.img bootfs partition info
   boot_part_info=$(parted -s "$raspios_location" unit B print | awk '$0 ~ /fat32/ {print $1,$2,$3,$4,$5,$6}')
   boot_start=$(echo "$boot_part_info" | awk '{print $2}' | tr -d 'B')
   boot_size=$(echo "$boot_part_info" | awk '{print $4}' | tr -d 'B')
   boot_fs_type=$(echo "$boot_part_info" | awk '{print $6}')
   
-  # Get loop device for raspios.img bootfs
-  boot_loop_device=$(get_loop_device $raspios_absolute_location $boot_start $boot_size)
-  
-  # Mount Boot loop device
-  if [[ $(is_device_mounted $boot_loop_device) == false ]]; then
+  # Setup loop device for raspios bootfs and get mount point
+  boot_loop_dev=$(get_loop_dev_from_img_partition  $raspios_absolute_location $boot_start $boot_size)
+  boot_mount_point=$(get_mount_point_from_loop_dev $boot_loop_dev)
 
-    udisksctl mount --block-device "$boot_loop_device" --no-user-interaction
-    check_error "Error mounting RaspiOS boot partition"
-    print_info "Raspios boot partition successfully mounted at $boot_mount_point"
-
-  fi
-
-  # Get Root partition info
+  # Get rootfs partition info
   root_part_info=$(parted -s "$raspios_location" unit B print | awk '$0 ~ /ext4/ {print $1,$2,$3,$4,$5,$6}')
   root_start=$(echo "$root_part_info" | awk '{print $2}' | tr -d 'B')
   root_size=$(echo "$root_part_info" | awk '{print $4}' | tr -d 'B')
   root_fs_type=$(echo "$root_part_info" | awk '{print $6}')
 
-  # Setup loop device for Root partition
-  root_loop_device=$(udisksctl loop-setup --file "$raspios_location" | awk '{print $4}')
-
-  # Mount Root partition
-  udisksctl mount --block-device "$root_loop_device" --options="fstype=ext4" --no-user-interaction
-  check_error "Error mounting RaspiOS root partition"
-  e2label "$root_loop_device" qemu-root
-  print_info "Raspios root partition successfully mounted at $root_mount_point"
+  # Setup loop device for raspios rootfs and get mount point
+  root_loop_dev=$(get_loop_dev_from_img_partition  $raspios_absolute_location $root_start $root_size)
+  root_mount_point=$(get_mount_point_from_loop_dev $root_loop_dev)
 
   # Set rpi password and enable ssh
-  password_hash=$(openssl passwd -6 "$rpi_password")
+  local password_hash=$(openssl passwd -6 "$rpi_password")
   touch "$boot_mount_point/ssh"
   echo "pi:$password_hash" > "$boot_mount_point/userconf"
 
@@ -401,11 +398,6 @@ setup_raspios() { # rpi_arch, [optional] mount point, [optional] raspios url, [ 
   # Detach loop devices
   udisksctl loop-delete --block-device "$boot_loop_device"
   udisksctl loop-delete --block-device "$root_loop_device"
-
-  # Remove temporary directories
-  rm -r "$boot_mount_point"
-  rm -r "$root_mount_point"
-  rm -r "$mount_point"
 
   QEMU_SD_LOCATION=$raspios_location
 } 
