@@ -10,9 +10,9 @@ KERNEL_NAME=""
 line_of_text_in_file() {
   local search_text="$1"
   local file="$2"
-  local line_number=$(grep -nF "$search_text" $file | cut -d : -f 1)
+  local line_number=$(grep -nF "$search_text" "$file" | cut -d : -f 1 | tail -n 1)
   # Check if the text was found in the file
-  if [[ -n $line_number ]]; then
+  if [[ $line_number != "" && $(is_integer $line_number) ]]; then
     echo "$line_number"
   else
     echo "-1" # Return -1 if not found
@@ -31,28 +31,38 @@ calculate_progress_from_prev_log() {
   local line_num=$(line_of_text_in_file "$log_entry" "$prev_log")
 
   if [[ ! -e "$prev_log" ]]; then
-    echo "-1"  # Previous log does not exist
+    echo "-1" # Previous log does not exist
     return
   fi
 
-  if [[ $line_num -lt 0 ]]; then
+  if [[ ! $(is_integer $line_num) ]]; then
+    echo "-1" # Line not found
+    return
+  fi
+
+  if [[ $line_num == "-1" ]]; then
     echo "-1" # Line not found
     return
   fi
 
   local total_lines=$(lines_in_file "$prev_log")
   if [[ $total_lines -lt 1 ]]; then
-    echo "-1" # Previous log is empty
-    return 
-  fi
-
-  local progress_dec=$(echo "scale=4; $line_num / $total_lines" | bc)
-  if [[ $(echo "$progress_dec < 0" | bc) -eq 1 ]]; then
-    echo "-1"
+    echo "-1" # Previous log is empty OR not found
     return
   fi
 
-  local return_progress=$(echo "$progress_dec * 100" | bc)
+  # Calculate the progress
+  return_progress=$(($line_num * 100 / $total_lines))
+  local progress_int=$(printf "%.0f" "$return_progress")
+
+  if [[ $progress_int -lt 0 ]]; then
+    echo "-1" # Progress OOB
+    return
+  fi
+  if [[ $progress_int -gt 100 ]]; then
+    echo "-1" # Progress OOB
+    return
+  fi
   echo "$return_progress"
 }
 
@@ -92,25 +102,30 @@ install_kernel_show_progressbar() {
   local rpi_arch="${1:?$(print_error "rpi_arch paramater is null")}"
   local cross_compiler="${2:?$(print_error "cross_compiler parameter is null")}"
 
+  # Copy previous log for progress comp
+  cp ../kernel_install.log ../kernel_install.log.old
+
   # Build modules
-  make ARCH="$rpi_arch" CROSS_COMPILE="$cross_compiler" INSTALL_MOD_PATH=build modules_install  >kernel_install.log 2>&1 &
+  make ARCH="$rpi_arch" CROSS_COMPILE="$cross_compiler" INSTALL_MOD_PATH=build modules_install >../kernel_install.log 2>&1 &
   local pid=$!
 
   # Monitor the progress and update the status bar
   while kill -0 $pid >/dev/null 2>&1; do
     sleep 1
 
-    # Sanitize git_clone_output
-    local cleaned_output=$(tr -d '\000' <kernel_install.log)
+    local cleaned_output=$(tr -d '\000' <../kernel_install.log)
     # Extract progress information from the last line
     local last_line=$(echo "$cleaned_output" | tail -n 1)
     # Check if last_line contains the text "build/lib/modules/"
-    if [[ $last_line == *"build/lib/modules/"* ]]; then
-      # Replace the kernel name with * to match any previous kernel name
-      last_line=$(echo "$last_line" | sed 's@build/lib/modules/[^/]*@build/lib/modules/*/@g')
+    if [[ $last_line == *"/kernel/"* ]]; then
+
+      # search for text after kernel name, because kernel name is unique
+      last_line=$(echo "$last_line" | awk -F '/kernel/' '{print $2}')
+
     fi
+
     # Update progress bar based on kernel build output
-    local progress=$(calculate_progress_from_prev_log "$last_line" kernel_build.log)
+    local progress=$(calculate_progress_from_prev_log "$last_line" ../kernel_install.log.old)
     update_progressbar $progress
   done
 
