@@ -5,10 +5,10 @@ QEMU_BIN_LOCATION=""
 QEMU_SD_LOCATION="/raspios.img"
 QEMU_MACHINE=""
 QEMU_CPU=""
-QEMU_MEMORY=""                             
-QEMU_KERNEL_LOCATION=""
+QEMU_MEMORY=""
+QEMU_KERNEL=""
 QEMU_DTB=""
-QEMU_DTB_LOCATION=""
+QEMU_DTB=""
 
 # RaspiOS Versions
 declare -a RASPI_BOOKWORK_6_6_20=("Bookworm" "6.6.20" "https://downloads.raspberrypi.com/raspios_arm64/images/raspios_arm64-2024-03-15/2024-03-15-raspios-bookworm-arm64.img.xz" https://downloads.raspberrypi.com/raspios_armhf/images/raspios_armhf-2024-03-15/2024-03-15-raspios-bookworm-armhf.img.xz)
@@ -24,58 +24,71 @@ declare -a RASPI_BUSTER_4_19_50=("Buster" "4.19.50" "" "https://downloads.raspbe
 declare -a RASPI_STRETCH_4_14_98=("Stretch" "4.14.98" "" "https://downloads.raspberrypi.com/raspbian/images/raspbian-2019-04-09/2019-04-08-raspbian-stretch.zip")
 declare -a RASPI_STRETCH_4_9_41=("Stretch" "4.9.41" "" "https://downloads.raspberrypi.com/raspbian/images/raspbian-2017-08-17/2017-08-16-raspbian-stretch.zip")
 
+get_free_port() {
+  start_port=${1:-"2000"}
+  end_port=${2:-"4000"}
+  # Loop through the port range and check for availability
+  for port in $(seq "$start_port" "$end_port"); do
+    # Check if the port is available
+    (echo >/dev/tcp/localhost/"$port") >/dev/null 2>&1 || {
+      echo $port
+      return
+    }
+  done
+}
+
 is_device_mounted() {
-    local loop_device="$1"
-    if mount | grep -q "$(readlink -f "$loop_device")"; then
-        echo true
-    else
-        echo false 
-    fi
+  local loop_device="$1"
+  if mount | grep -q "$(readlink -f "$loop_device")"; then
+    echo true
+  else
+    echo false
+  fi
 }
 
 # Initiate curl download, monitor progress and update the progress bar
 curl_progress() { # filename, url, [ optional ] log_file=curl_output.log
-    local filename="${1:?$(print_error "curl_progress: filename paramater is null")}"
-    local url="${2:?$(print_error "curl_progress: url paramater is null")}"
-    local log_file=${3:-"curl_output.log"}
+  local filename="${1:?$(print_error "curl_progress: filename paramater is null")}"
+  local url="${2:?$(print_error "curl_progress: url paramater is null")}"
+  local log_file=${3:-"curl_output.log"}
 
-    # Start curl in the background and redirect output to log file
-    curl -o $filename $url > "$log_file" 2>&1 &
+  # Start curl in the background and redirect output to log file
+  curl -o $filename $url >"$log_file" 2>&1 &
 
-    # Get the PID of the curl process
-    local pid=$!
+  # Get the PID of the curl process
+  local pid=$!
 
-    # Monitor the output log file of curl
-    while kill -0 "$pid" > /dev/null 2>&1; do
-        if [[ -f "$log_file" ]]; then
-            # Sanitize git_clone_output
-            cleaned_output=$(tr -d '\000' < "$log_file" | tr '\r' '\n')
-            # Extract progress information from the last line
-            last_line=$(echo "$cleaned_output" | tail -n 1)
-            # Extract progress information from the log file
-            if [[ -n $last_line ]]; then
-              progress=$(echo "$last_line" | awk '{print $1}')
-              update_progressbar "$progress"
-            fi
-        fi
-        sleep 1
-    done
-    complete_progressbar
+  # Monitor the output log file of curl
+  while kill -0 "$pid" >/dev/null 2>&1; do
+    if [[ -f "$log_file" ]]; then
+      # Sanitize git_clone_output
+      cleaned_output=$(tr -d '\000' <"$log_file" | tr '\r' '\n')
+      # Extract progress information from the last line
+      last_line=$(echo "$cleaned_output" | tail -n 1)
+      # Extract progress information from the log file
+      if [[ -n $last_line ]]; then
+        progress=$(echo "$last_line" | awk '{print $1}')
+        update_progressbar "$progress"
+      fi
+    fi
+    sleep 1
+  done
+  complete_progressbar
 }
 
-# Initiate xz, monitor progress and update the progress bar 
+# Initiate xz, monitor progress and update the progress bar
 xzd_progress() {
   local filename="${1:?$(print_error "xzd_progress: filename paramater is null")}"
   local log_file=${2:-"xz_output.log"}
 
   # Extract Raspios in bg and log output
-  xz -dvk "$filename" > "$log_file" 2>&1 &
+  xz -dvk "$filename" >"$log_file" 2>&1 &
 
   # Get the PID of the curl process
   local pid=$!
 
   # Monitor the output log file of xz
-  while kill -0 "$pid" > /dev/null 2>&1; do
+  while kill -0 "$pid" >/dev/null 2>&1; do
     if [[ -f "$log_file" ]]; then
       sleep 0.5
       # Send ALRM to xz to refresh xz_output.log
@@ -103,21 +116,21 @@ check_qemu_supports_rpi() { #rpi_version, rpi_arch
   local rpi_version="${1:?$(print_error "rpi_arch paramater is null")}"
   local rpi_arch=${2:-"arm"}
 
-  # Set qemu_system accoording to rpi_arch
-    if [[ $rpi_arch == "arm" ]]; then
-      qemu_system="arm"
-    elif [[ $rpi_arch == "arm64" ]]; then
-      qemu_system="aarch64"
-    fi
+  # Set qemu_arch accoording to rpi_arch
+  if [[ $rpi_arch == "arm" ]]; then
+    qemu_arch="arm"
+  elif [[ $rpi_arch == "arm64" ]]; then
+    qemu_arch="aarch64"
+  fi
 
   # Check to see if qemu supports rpi version
-  machine_output=$("qemu-system-$qemu_system" -machine ?)
-  if grep -q "raspi$rpi_version" <<< "$machine_output"; then
-      echo true
+  machine_output=$("qemu-system-$qemu_arch" -machine ?)
+  if grep -q "raspi$rpi_version" <<<"$machine_output"; then
+    echo true
   else
-      echo false
+    echo false
   fi
-  
+
 }
 
 # Set Qemu args according to rpi version
@@ -125,91 +138,92 @@ get_qemu_args_from_rpi_version() { # rpi_version, [ optional ] rpi_arch=arm64
   local rpi_version="${1:?$(print_error "rpi_version parameter is null or unset")}"
   local rpi_arch=${2:-"arm64"}
 
-  #TODO: Prompt for additional board options. RPI 
+  #TODO: Prompt for additional board options. RPI
   case $rpi_version in
-    1)
-      # bcm2708-rpi-b-plus.dtb
-      # bcm2708-rpi-b-rev1.dtb
-      # bcm2708-rpi-b.dtb
-      # bcm2708-rpi-cm.dtb
-      # bcm2708-rpi-zero-w.dtb
-      # bcm2708-rpi-zero.dtb
+  1)
+    # bcm2708-rpi-b-plus.dtb
+    # bcm2708-rpi-b-rev1.dtb
+    # bcm2708-rpi-b.dtb
+    # bcm2708-rpi-cm.dtb
+    # bcm2708-rpi-zero-w.dtb
+    # bcm2708-rpi-zero.dtb
 
-      # raspi0 and raspi1ap
-      # ARM1176JZF-S core, 512 MiB of RAM
+    # raspi0 and raspi1ap
+    # ARM1176JZF-S core, 512 MiB of RAM
 
-      QEMU_DTB="bcm2708-rpi-b-plus"
-      QEMU_CPU="arm1176"
-      QEMU_MEMORY="512"
-      QEMU_MACHINE="raspi1ap"
-      ;;
-    2)
-      # bcm2709-rpi-2-b.dtb
-      # bcm2709-rpi-cm2.dtb
-      # bcm2710-rpi-2-b.dtb
-      # bcm2710-rpi-zero-2-w.dtb
-      # bcm2710-rpi-zero-2.dtb
+    QEMU_DTB="bcm2708-rpi-b-plus"
+    QEMU_CPU="arm1176"
+    QEMU_MEMORY="512"
+    QEMU_MACHINE="raspi1ap"
+    ;;
+  2)
+    # bcm2709-rpi-2-b.dtb
+    # bcm2709-rpi-cm2.dtb
+    # bcm2710-rpi-2-b.dtb
+    # bcm2710-rpi-zero-2-w.dtb
+    # bcm2710-rpi-zero-2.dtb
 
-      # raspi2b
-      # Cortex-A7 (4 cores), 1 GiB of RAM
-    
-      QEMU_DTB="bcm2710-rpi-2-b"
-      QEMU_CPU="cortex-a7"
-      QEMU_MEMORY="1G"
-      QEMU_MACHINE="raspi2b"
-      ;;
-    3)
-      # bcm2710-rpi-3-b-plus.dtb
-      # bcm2710-rpi-3-b.dtb
-      # bcm2710-rpi-cm3.dtb
+    # raspi2b
+    # Cortex-A7 (4 cores), 1 GiB of RAM
 
-      # raspi3ap
-      # Cortex-A53 (4 cores), 512 MiB of RAM
-      # raspi3b
-      # Cortex-A53 (4 cores), 1 GiB of RAM
-      QEMU_DTB="bcm2837-rpi-3-b-plus"
-      QEMU_CPU="cortex-a53"
-      QEMU_MEMORY="1G"
-      QEMU_MACHINE="raspi3b"
-      ;;
-    4)
-      # bcm2711-rpi-4-b.dtb
-      # bcm2711-rpi-400.dtb
-      # bcm2711-rpi-cm4-io.dtb
-      # bcm2711-rpi-cm4.dtb
-      # bcm2711-rpi-cm4s.dtb
+    QEMU_DTB="bcm2710-rpi-2-b"
+    QEMU_CPU="cortex-a7"
+    QEMU_MEMORY="1G"
+    QEMU_MACHINE="raspi2b"
+    ;;
+  3)
+    # bcm2710-rpi-3-b-plus.dtb
+    # bcm2710-rpi-3-b.dtb
+    # bcm2710-rpi-cm3.dtb
 
-      # raspi4b
-      # Cortex-A72 (4 cores), 2 GiB of RAM
-      QEMU_DTB="bcm2711-rpi-4-b"
-      QEMU_CPU="cortex-a72"
-      QEMU_MEMORY="2G"
-      QEMU_MACHINE="raspi4b"
-      ;;
-    5)
-      # TODO: RPI 5 not supported natively in qemu, but could be via virt
-      print_warning "RPI 5 not supported, yet!"
-      print_info "Falling back to RPI 4"
-      # support via virt?
-      # bcm2712-rpi-5-b.dtb
-      # bcm2712-rpi-cm5-cm4io.dtb
-      # bcm2712-rpi-cm5-cm5io.dtb
-      # bcm2712d0-rpi-5-b.dtb
-      QEMU_DTB="bcm2711-rpi-4-b"
-      QEMU_CPU="cortex-a72"
-      QEMU_MEMORY="4G"
-      QEMU_MACHINE="raspi4b"
-      ;;
+    # raspi3ap
+    # Cortex-A53 (4 cores), 512 MiB of RAM
+    # raspi3b
+    # Cortex-A53 (4 cores), 1 GiB of RAM
+    QEMU_DTB="bcm2837-rpi-3-b-plus"
+    QEMU_CPU="cortex-a53"
+    QEMU_MEMORY="1G"
+    QEMU_MACHINE="raspi3b"
+    ;;
+  4)
+    # bcm2711-rpi-4-b.dtb
+    # bcm2711-rpi-400.dtb
+    # bcm2711-rpi-cm4-io.dtb
+    # bcm2711-rpi-cm4.dtb
+    # bcm2711-rpi-cm4s.dtb
+
+    # raspi4b
+    # Cortex-A72 (4 cores), 2 GiB of RAM
+    QEMU_DTB="bcm2711-rpi-4-b"
+    QEMU_CPU="cortex-a72"
+    QEMU_MEMORY="2G"
+    QEMU_MACHINE="raspi4b"
+    ;;
+  5)
+    # TODO: RPI 5 not supported natively in qemu, but could be via virt
+    print_warning "RPI 5 not supported, yet!"
+    print_info "Falling back to RPI 4"
+    # support via virt?
+    # bcm2712-rpi-5-b.dtb
+    # bcm2712-rpi-cm5-cm4io.dtb
+    # bcm2712-rpi-cm5-cm5io.dtb
+    # bcm2712d0-rpi-5-b.dtb
+    QEMU_DTB="bcm2711-rpi-4-b"
+    QEMU_CPU="cortex-a72"
+    QEMU_MEMORY="4G"
+    QEMU_MACHINE="raspi4b"
+    ;;
   esac
 
-  QEMU_KERNEL_LOCATION="linux/arch/$rpi_arch/boot/$KERNEL_IMAGE_TYPE"
-  QEMU_DTB_LOCATION="linux/arch/$rpi_arch/boot/dts/broadcom/$QEMU_DTB.dtb"
+  QEMU_KERNEL="linux/arch/$rpi_arch/boot/Image"
+  QEMU_DTB="linux/arch/$rpi_arch/boot/dts/broadcom/$QEMU_DTB.dtb"
 
   print_verbose "QEMU_DTB: $QEMU_DTB"
   print_verbose "QEMU_CPU: $QEMU_CPU"
   print_verbose "QEMU_MEMORY: $QEMU_MEMORY"
   print_verbose "QEMU_MACHINE: $QEMU_MACHINE"
-  print_verbose "QEMU_DTB_LOCATION: $QEMU_DTB_LOCATION"
+  print_verbose "QEMU_DTB: $QEMU_DTB"
+  print_verbose "QEMU_KERNEL: $QEMU_KERNEL"
 }
 
 # Returns the url for the latest raspios.img.xz, depending on arch
@@ -229,49 +243,51 @@ latest_raspios_url() { # [ optional ] rpi_arch=arm64
   latest_html_content=$(curl -s "$latest_link")
   img_xz_link=$(echo "$latest_html_content" | grep -oP 'href=".*\.img\.xz"' | sed 's/href="//')
   echo "$img_xz_link"
-}  
+}
 
 # launch qemu with the newly compiled kernel, dtb's and configured raspios rootfs
-emulate_kernel() { # qemu_machine, cpu, mem, dtb_location, raspios_location, kernel_location
+emulate_kernel() { # qemu_machine, cpu, mem, dtb_location, raspios_image, kernel_location
   local qemu_machine="${1:?$(print_error "qemu_machine parameter is null or unset")}"
   local cpu="${2:?$(print_error "cpu parameter is null or unset")}"
   local mem="${3:?$(print_error "mem parameter is null or unset")}"
   local dtb_location="${4:?$(print_error "dtb_location parameter is null or unset")}"
-  local raspios_location="${5:?$(print_error "raspios_location parameter is null or unset")}"
+  local raspios_image="${5:?$(print_error "raspios_image parameter is null or unset")}"
   local kernel_location="${6:?$(print_error "kernel_location parameter is null or unset")}"
   local rpi_arch="${7:?$(print_error "rpi_arch parameter is null or unset")}"
   local qemu_location="$8"
-  local qemu_system=""
+  local qemu_arch=""
 
   # append ./ to qemu_location
   if [[ "$8" != "" ]]; then
-    qemu_location="$8/" 
+    qemu_location="$8/"
   fi
 
-  # Set qemu_system accoording to rpi_arch
+  # Set qemu_arch accoording to rpi_arch
   if [[ $rpi_arch == "arm" ]]; then
-    qemu_system="arm"
+    qemu_arch="arm"
   elif [[ $rpi_arch == "arm64" ]]; then
-    qemu_system="aarch64"
+    qemu_arch="aarch64"
   fi
-  
-  # Run qemu with specified args
-  "$qemu_location"qemu-system-"$qemu_system" \
-  -machine $qemu_machine \
-  -cpu $cpu \
-  -nographic \
-  -dtb $dtb_location \
-  -m $mem \
-  -smp 4 \
-  -kernel $kernel_location \
-  -sd $raspios_location \
-  -append "rw earlyprintk loglevel=8 console=ttyAMA0,115200 dwc_otg.lpm_enable=0 root=/dev/mmcblk0p2 rootdelay=1" \
-  -device usb-net,netdev=net0 \
-  -netdev user,id=net0,hostfwd=tcp::2222-:22
+
+  local port=$(get_free_port 2222) # Get first free net port, starting at 2222
+
+  # Run specified qemu with specified args
+  "$qemu_location"qemu-system-"$qemu_arch" \
+    -machine $qemu_machine \
+    -cpu $cpu \
+    -nographic \
+    -dtb $dtb_location \
+    -m $mem \
+    -smp 4 \
+    -kernel $kernel_location \
+    -sd $raspios_image \
+    -append "rw earlyprintk loglevel=8 console=ttyAMA0,115200 dwc_otg.lpm_enable=0 root=/dev/mmcblk0p2 rootdelay=1" \
+    -device usb-net,netdev=net0 \
+    -netdev "user,id=net0,hostfwd=tcp::$port-:22"
 
 }
 
-get_loop_dev_from_img_partition(){ # raspios_absolute_location, offset, size
+get_loop_dev_from_img_partition() { # raspios_absolute_location, offset, size
   local raspios_absolute_location="${1:?$(print_error "raspios_absolute_location parameter is null or unset")}"
   local offset="${2:?$(print_error "offset is null or unset")}"
   local size="${3:?$(print_error "size is null or unset")}"
@@ -282,25 +298,27 @@ get_loop_dev_from_img_partition(){ # raspios_absolute_location, offset, size
   # THEN we can check if the loop device is mounted
 
   # Get existing loop devs with matching backfile, offset, and size
+  # NOTE: removed the match for size, as this changes during raspios_setup image resizing
   local loop_devs_info=$(losetup --list --output NAME,BACK-FILE,OFFSET,SIZELIMIT)
-  local loop_devs=$(echo "$loop_devs_info" | awk -v file_location="$raspios_absolute_location" -v offset="$offset" -v size_limit="$size" '$2 == file_location && $3 == offset && $4 == size_limit {print $1}')
+  local loop_devs=$(echo "$loop_devs_info" | awk -v file_location="$raspios_absolute_location" -v offset="$offset" -v size_limit="$size" '$2 == file_location && $3 == offset {print $1}')
 
   # Iterate through the list of loop devices with matching back-file, offset, and sizelimit
   for loop_dev in $loop_devs; do
     # Check if the loop device is mounted
     if grep -qs "$loop_dev " /proc/mounts; then
-      # Use mounted loop device
+      # This partition of RaspiOS is already mounted so use existing loop_dev
       echo $loop_dev
       return
     fi
   done
 
   # Otherwise create loop device via udisksctl
-  loop_output=$(udisksctl loop-setup --file "$raspios_location" --offset "$offset" --size "$size")
-  if [[ "$loop_output" =~ "Mapped file $raspios_location as" ]]; then
+  loop_output=$(udisksctl loop-setup --file "$raspios_image" --offset "$offset" --size "$size" --no-user-interaction)
+  # Verify successful loop_dev creation
+  if [[ "$loop_output" =~ "Mapped file $raspios_image as" ]]; then
     # Use this loop device
-    loop_dev=$(echo $loop_output | awk '{print $5}')
-    echo $loop_dev
+    loop_dev=$(echo "$loop_output" | awk '{gsub(/\.$/,""); print $5}')
+    echo "$loop_dev"
   else
     print_error "Could not set up loop device"
   fi
@@ -311,24 +329,25 @@ get_mount_point_from_loop_dev() { # loop_dev
   local loop_dev="${1:?$(print_error "loop_dev parameter is null or unset")}"
   local mount_point=$(grep -w "$loop_dev" /proc/mounts | awk '{print $2}')
   echo $mount_point
-} 
+}
 
-
-  # For qemu, in addition to a kernel and dtb's, we need a rootfs
-  # We will get our rootfs from the specified RaspiOS.img
-  # download the [latest] raspios image and extract
-  # mount boot and root partitions
-  # enable ssl and create password
-  # copy kernel, modules, device tree blobs to raspios.img
-  # set kernel as active on raspios.img
-  # umount raspios.img
-  # Side note: raspios.img is now configured with newly built kernel
+# For qemu, in addition to a kernel and dtb's, we need a rootfs
+# We will get our rootfs from the specified RaspiOS.img
+# download the [latest] raspios image and extract
+# mount boot and root partitions
+# enable ssl and create password
+# copy kernel, modules, device tree blobs to raspios.img
+# set kernel as active on raspios.img
+# umount raspios.img
+# Side note: raspios.img is now configured with newly built kernel
+# fixme: this function is getting long and convoluted, future changes should
+# consider breaking it up into subroutines such as get_raspios, mount_raspios, install_kernel_to_raspios , unmount_raspios
 setup_raspios() { # rpi_arch, [optional] raspios_img_filename, [optional] raspios url, [ optional ] rpi_password
   local rpi_arch=${1:-"arm64"}
-  local raspios_location=${2:-"raspios-$rpi_arch.img"}
+  local raspios_image=${2:-"raspios-$rpi_arch.img"}
   local raspios_url="$3" # Set below, according to arch
   local rpi_password=${4:-"raspberry"}
-  local raspios_absolute_location=$(readlink -f "$raspios_location")
+  local raspios_absolute_location=$(readlink -f "$raspios_image")
   local boot_loop_dev=""
   local root_loop_dev=""
   local boot_mount_point=""
@@ -344,9 +363,9 @@ setup_raspios() { # rpi_arch, [optional] raspios_img_filename, [optional] raspio
   fi
 
   # Download Raspios
-  if [[ ! -e "$raspios_location.xz" ]]; then
+  if [[ ! -e "$raspios_image.xz" ]]; then
     print_info "Downloading Raspios..."
-    curl_progress $raspios_location.xz $raspios_url
+    curl_progress $raspios_image.xz $raspios_url
     check_error "Could not download Raspios"
     print_success "Raspios successfully downloaded"
   else
@@ -354,50 +373,94 @@ setup_raspios() { # rpi_arch, [optional] raspios_img_filename, [optional] raspio
   fi
 
   # Extract Raspios
-  if [[ ! -e "$raspios_location" ]]; then
+  if [[ ! -e "$raspios_image" ]]; then
     print_info "Extracting Raspios..."
-    xzd_progress "$raspios_location.xz"
+    xzd_progress "$raspios_image.xz"
     check_error "Could not extract Raspios"
     print_success "Raspios successfully downloaded"
   else
     print_verbose "Raspios.img already exists, skipping extraction"
   fi
 
+  # Expand RaspiOS image and rootfs partition
+  print_info "Resizing RaspiOS"
+  qemu-img resize "$raspios_image" 16G #
+  check_error "Could not resize RaspiOS image"
+
+  # Resize Rootfs
+  echo $ARG_US_PWD | sudo -S parted -s "$raspios_image" resizepart 2 100%
+  check_error "Could not resize RaspiOS rootfs partition"
+
   # Get raspios.img bootfs partition info
-  boot_part_info=$(parted -s "$raspios_location" unit B print | awk '$0 ~ /fat32/ {print $1,$2,$3,$4,$5,$6}')
+  boot_part_info=$(parted -s "$raspios_image" unit B print | awk '$0 ~ /fat32/ {print $1,$2,$3,$4,$5,$6}')
   boot_start=$(echo "$boot_part_info" | awk '{print $2}' | tr -d 'B')
   boot_size=$(echo "$boot_part_info" | awk '{print $4}' | tr -d 'B')
   boot_fs_type=$(echo "$boot_part_info" | awk '{print $6}')
-  
+
   # Setup loop device for raspios bootfs and get mount point
-  boot_loop_dev=$(get_loop_dev_from_img_partition  $raspios_absolute_location $boot_start $boot_size)
+  boot_loop_dev=$(get_loop_dev_from_img_partition $raspios_absolute_location $boot_start $boot_size)
   boot_mount_point=$(get_mount_point_from_loop_dev $boot_loop_dev)
 
   # Get rootfs partition info
-  root_part_info=$(parted -s "$raspios_location" unit B print | awk '$0 ~ /ext4/ {print $1,$2,$3,$4,$5,$6}')
+  root_part_info=$(parted -s "$raspios_image" unit B print | awk '$0 ~ /ext4/ {print $1,$2,$3,$4,$5,$6}')
   root_start=$(echo "$root_part_info" | awk '{print $2}' | tr -d 'B')
   root_size=$(echo "$root_part_info" | awk '{print $4}' | tr -d 'B')
   root_fs_type=$(echo "$root_part_info" | awk '{print $6}')
 
   # Setup loop device for raspios rootfs and get mount point
-  root_loop_dev=$(get_loop_dev_from_img_partition  $raspios_absolute_location $root_start $root_size)
+  root_loop_dev=$(get_loop_dev_from_img_partition $raspios_absolute_location $root_start $root_size)
+  root_mount_point=$(get_mount_point_from_loop_dev $root_loop_dev)
+
+  # Resize rootfs to use all available space
+  echo $ARG_US_PWD | sudo -S resize2fs "$root_loop_dev"
+  check_error "Could not resize RaspiOS rootfs filesystem"
+
+  # Use partprobe to inform the kernel about partition changes
+  echo $ARG_US_PWD | sudo -S partprobe "$root_loop_dev" # Maybe not necessary?
+  check_error "Could not inform kernel about partition size changes"
+
+  # ****** FIX ME *******
+  # fixme: if this seems repetitive, that's because it is!
+  # We need to mount the root just to resize it, but we need to remount it to
+  # have the resize take affect
+  # ****** FIX ME *******
+
+  # Unmount root
+  udisksctl unmount --block-device "$root_loop_dev"
+  check_error "could not unmount $root_loop_dev"
+  # Detach root loop devices
+  udisksctl loop-delete --block-device "$root_loop_dev"
+  check_error "could not delete $root_loop_dev"
+
+  # Get rootfs partition info
+  root_part_info=$(parted -s "$raspios_image" unit B print | awk '$0 ~ /ext4/ {print $1,$2,$3,$4,$5,$6}')
+  root_start=$(echo "$root_part_info" | awk '{print $2}' | tr -d 'B')
+  root_size=$(echo "$root_part_info" | awk '{print $4}' | tr -d 'B')
+  root_fs_type=$(echo "$root_part_info" | awk '{print $6}')
+
+  # Setup loop device for raspios rootfs and get mount point
+  root_loop_dev=$(get_loop_dev_from_img_partition $raspios_absolute_location $root_start $root_size)
   root_mount_point=$(get_mount_point_from_loop_dev $root_loop_dev)
 
   # Set rpi password and enable ssh
   local password_hash=$(openssl passwd -6 "$rpi_password")
   touch "$boot_mount_point/ssh"
-  echo "pi:$password_hash" > "$boot_mount_point/userconf"
+  check_warning "Could not enable ssh"
+  echo "pi:$password_hash" >"$boot_mount_point/userconf"
 
   # Copy kernel, modules, device tree blobs and set active kernel in config.txt
   copy_kernel_to_rpi "$RPI_ARCH" "$boot_mount_point" "$root_mount_point"
 
   # Unmount boot and root of RaspiOS
-  udisksctl unmount --block-device "$boot_loop_device"
-  udisksctl unmount --block-device "$root_loop_device"
-
+  udisksctl unmount --block-device "$boot_loop_dev"
+  check_error "could not unmount $boot_loop_dev"
+  udisksctl unmount --block-device "$root_loop_dev"
+  check_error "could not unmount $root_loop_dev"
   # Detach loop devices
-  udisksctl loop-delete --block-device "$boot_loop_device"
-  udisksctl loop-delete --block-device "$root_loop_device"
+  udisksctl loop-delete --block-device "$boot_loop_dev"
+  check_error "could not delete $boot_loop_dev"
+  udisksctl loop-delete --block-device "$root_loop_dev"
+  check_error "could not delete $root_loop_dev"
 
-  QEMU_SD_LOCATION=$raspios_location
-} 
+  QEMU_SD_LOCATION=$raspios_image
+}

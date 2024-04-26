@@ -9,12 +9,12 @@
   CC      kernel/module/main.o
   CC [M]  drivers/auxdisplay/charlcd.o
   CC [M]  drivers/net/bonding/bond_main.o
-  CC [M]  drivers/net/bonding/bond_procfs.o
   UPD     kernel/config_data
-  GZIP    kernel/config_data.gz
-  CC [M]  kernel/configs.o
+  CC [M]  drivers/net/bonding/bond_procfs.o
   AR      drivers/base/firmware_loader/built-in.a
   AR      drivers/base/built-in.a
+  GZIP    kernel/config_data.gz
+  CC [M]  kernel/configs.o
   AR      kernel/module/built-in.a
   AR      kernel/built-in.a
   LD [M]  drivers/net/bonding/bonding.o
@@ -31,8 +31,8 @@
   LD      .tmp_vmlinux.kallsyms1
   NM      .tmp_vmlinux.kallsyms1.syms
   KSYMS   .tmp_vmlinux.kallsyms1.S
-  AS      .tmp_vmlinux.kallsyms1.S
   CC [M]  arch/arm64/crypto/chacha-neon.mod.o
+  AS      .tmp_vmlinux.kallsyms1.S
   CC [M]  arch/arm64/crypto/poly1305-neon.mod.o
   CC [M]  kernel/configs.mod.o
   CC [M]  mm/z3fold.mod.o
@@ -143,8 +143,8 @@
   CC [M]  crypto/cast_common.mod.o
   CC [M]  crypto/cast5_generic.mod.o
   CC [M]  crypto/chacha_generic.mod.o
-  NM      .tmp_vmlinux.kallsyms2.syms
   CC [M]  crypto/poly1305_generic.mod.o
+  NM      .tmp_vmlinux.kallsyms2.syms
   CC [M]  crypto/deflate.mod.o
   CC [M]  crypto/authenc.mod.o
   CC [M]  crypto/authencesn.mod.o
@@ -156,10 +156,10 @@
   CC [M]  crypto/af_alg.mod.o
   CC [M]  crypto/algif_hash.mod.o
   CC [M]  crypto/algif_skcipher.mod.o
-  CC [M]  crypto/algif_aead.mod.o
   CC [M]  crypto/algif_rng.mod.o
-  CC [M]  crypto/zstd.mod.o
+  CC [M]  crypto/algif_aead.mod.o
   KSYMS   .tmp_vmlinux.kallsyms2.S
+  CC [M]  crypto/zstd.mod.o
   CC [M]  crypto/ecc.mod.o
   CC [M]  crypto/essiv.mod.o
   CC [M]  crypto/ecdh_generic.mod.o
@@ -170,12 +170,12 @@
   CC [M]  crypto/async_tx/async_pq.mod.o
   CC [M]  crypto/async_tx/async_raid6_recov.mod.o
   CC [M]  arch/arm64/lib/xor-neon.mod.o
+  AS      .tmp_vmlinux.kallsyms2.S
   CC [M]  lib/math/cordic.mod.o
   CC [M]  lib/crypto/libchacha.mod.o
   CC [M]  lib/crypto/libarc4.mod.o
   CC [M]  lib/crypto/gf128mul.mod.o
   CC [M]  lib/crypto/libchacha20poly1305.mod.o
-  AS      .tmp_vmlinux.kallsyms2.S
   CC [M]  lib/crypto/libcurve25519-generic.mod.o
   CC [M]  lib/crypto/libcurve25519.mod.o
   CC [M]  lib/crypto/libpoly1305.mod.o
@@ -185,11 +185,11 @@
   CC [M]  lib/crc8.mod.o
   CC [M]  lib/raid6/raid6_pq.mod.o
   CC [M]  lib/ts_kmp.mod.o
+  LD      vmlinux
   CC [M]  lib/ts_bm.mod.o
   CC [M]  lib/ts_fsm.mod.o
   CC [M]  lib/lru_cache.mod.o
   CC [M]  drivers/pinctrl/pinctrl-mcp23s08_i2c.mod.o
-  LD      vmlinux
   CC [M]  drivers/pinctrl/pinctrl-mcp23s08_spi.mod.o
   CC [M]  drivers/pinctrl/pinctrl-mcp23s08.mod.o
   CC [M]  drivers/gpio/gpio-arizona.mod.o
@@ -273,6 +273,7 @@
   CC [M]  drivers/net/mdio/mdio-bitbang.mod.o
   CC [M]  drivers/net/ethernet/microchip/enc28j60.mod.o
   CC [M]  drivers/net/ethernet/qualcomm/qca_7k_common.mod.o
+  NM      System.map
   CC [M]  drivers/net/ethernet/qualcomm/qcaspi.mod.o
   CC [M]  drivers/net/ethernet/qualcomm/qcauart.mod.o
   CC [M]  drivers/net/ethernet/wiznet/w5100.mod.o
@@ -283,7 +284,6 @@
   CC [M]  drivers/net/hamradio/bpqether.mod.o
   CC [M]  drivers/net/hamradio/baycom_ser_fdx.mod.o
   CC [M]  drivers/net/hamradio/hdlcdrv.mod.o
-  NM      System.map
   CC [M]  drivers/net/hamradio/baycom_ser_hdx.mod.o
   CC [M]  drivers/net/wireless/ath/ath9k/ath9k.mod.o
   CC [M]  drivers/net/wireless/ath/ath9k/ath9k_hw.mod.o
@@ -292,9 +292,11 @@
   CC [M]  drivers/net/wireless/ath/carl9170/carl9170.mod.o
   CC [M]  drivers/net/wireless/ath/ath6kl/ath6kl_core.mod.o
   CC [M]  drivers/net/wireless/ath/ath6kl/ath6kl_usb.mod.o
+  SORTTAB vmlinux
   CC [M]  drivers/net/wireless/ath/ar5523/ar5523.mod.o
   CC [M]  drivers/net/wireless/ath/ath.mod.o
   CC [M]  drivers/net/wireless/atmel/at76c50x-usb.mod.o
+  OBJCOPY arch/arm64/boot/Image
   CC [M]  drivers/net/wireless/broadcom/b43/b43.mod.o
   CC [M]  drivers/net/wireless/broadcom/b43legacy/b43legacy.mod.o
   CC [M]  drivers/net/wireless/broadcom/brcm80211/brcmutil/brcmutil.mod.o
@@ -303,9 +305,7 @@
   CC [M]  drivers/net/wireless/broadcom/brcm80211/brcmfmac/cyw/brcmfmac-cyw.mod.o
   CC [M]  drivers/net/wireless/broadcom/brcm80211/brcmfmac/bca/brcmfmac-bca.mod.o
   CC [M]  drivers/net/wireless/intersil/p54/p54common.mod.o
-  SORTTAB vmlinux
   CC [M]  drivers/net/wireless/intersil/p54/p54usb.mod.o
-  OBJCOPY arch/arm64/boot/Image
   CC [M]  drivers/net/wireless/marvell/libertas/libertas.mod.o
   CC [M]  drivers/net/wireless/marvell/libertas/usb8xxx.mod.o
   CC [M]  drivers/net/wireless/marvell/libertas/libertas_sdio.mod.o
@@ -814,8 +814,8 @@
   CC [M]  drivers/staging/fbtft/fb_tls8204.mod.o
   CC [M]  drivers/staging/fbtft/fb_uc1611.mod.o
   CC [M]  drivers/staging/fbtft/fb_uc1701.mod.o
-  CC [M]  drivers/connector/cn.mod.o
   CC [M]  drivers/staging/fbtft/fb_upd161704.mod.o
+  CC [M]  drivers/connector/cn.mod.o
   CC [M]  drivers/ata/libata.mod.o
   CC [M]  drivers/mtd/parsers/ofpart.mod.o
   CC [M]  drivers/mtd/chips/chipreg.mod.o
@@ -1767,8 +1767,8 @@
   LD [M]  drivers/usb/serial/cyberjack.ko
   LD [M]  drivers/usb/serial/cypress_m8.ko
   LD [M]  drivers/usb/serial/usb_debug.ko
-  LD [M]  drivers/usb/serial/io_edgeport.ko
   LD [M]  drivers/usb/serial/digi_acceleport.ko
+  LD [M]  drivers/usb/serial/io_edgeport.ko
   LD [M]  drivers/usb/serial/io_ti.ko
   LD [M]  drivers/usb/serial/empeg.ko
   LD [M]  drivers/usb/serial/f81232.ko
@@ -1792,8 +1792,8 @@
   LD [M]  drivers/usb/serial/option.ko
   LD [M]  drivers/usb/serial/oti6858.ko
   LD [M]  drivers/usb/serial/pl2303.ko
-  LD [M]  drivers/usb/serial/qcaux.ko
   LD [M]  drivers/usb/serial/qcserial.ko
+  LD [M]  drivers/usb/serial/qcaux.ko
   LD [M]  drivers/usb/serial/quatech2.ko
   LD [M]  drivers/usb/serial/safe_serial.ko
   LD [M]  drivers/usb/serial/sierra.ko
@@ -2278,8 +2278,8 @@
   LD [M]  net/sched/cls_cgroup.ko
   LD [M]  net/sched/em_cmp.ko
   LD [M]  net/sched/em_nbyte.ko
-  LD [M]  net/sched/em_u32.ko
   LD [M]  net/sched/em_meta.ko
+  LD [M]  net/sched/em_u32.ko
   LD [M]  net/sched/em_text.ko
   LD [M]  net/sched/em_ipset.ko
   LD [M]  net/netfilter/nfnetlink.ko
@@ -2477,8 +2477,8 @@
   LD [M]  net/xfrm/xfrm_ipcomp.ko
   LD [M]  net/xfrm/xfrm_interface.ko
   LD [M]  net/ipv6/netfilter/ip6_tables.ko
-  LD [M]  net/ipv6/netfilter/ip6table_mangle.ko
   LD [M]  net/ipv6/netfilter/ip6table_filter.ko
+  LD [M]  net/ipv6/netfilter/ip6table_mangle.ko
   LD [M]  net/ipv6/netfilter/ip6table_raw.ko
   LD [M]  net/ipv6/netfilter/ip6table_security.ko
   LD [M]  net/ipv6/netfilter/ip6table_nat.ko

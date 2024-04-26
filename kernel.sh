@@ -1,11 +1,10 @@
 #! /bin/bash
 
 # Kernel build args
-RPI_VERSION=""
-RPI_ARCH=""
-RPI_CC=""
-KERNEL_CONFIG=""
-KERNEL_NAME=""
+
+KERNEL_CONFIG=""     # Name of Kernel defconfig for specified RPI
+KERNEL_NAME=""       # Name of kernel on RaspiOS NOTE: set during kernel make_install
+KERNEL_BUILD_NAME="" # Name of kernel in build output
 
 line_of_text_in_file() {
   local search_text="$1"
@@ -76,6 +75,8 @@ build_kernel_show_progressbar() {
 
   # Build the Linux kernel in bg, output to log and monitor
   print_info "Building linux kernel"
+  # fixme: contrary to the official rpi guide, we only use Image, this might break things for 32 bit
+  # However, testing is required because we do specify the kernel name in config.txt, we might get away with this
   make ARCH="$rpi_arch" -j"$cpu_cores" CROSS_COMPILE="$cross_compiler" Image modules dtbs >../kernel_build.log 2>&1 &
   local pid=$!
 
@@ -226,6 +227,8 @@ git_kernel() { # [ optional ] linux_version, [ optional ] linux_repo
   local linux_repo="$2"
   local linux_branch=""
 
+  print_info "Downloading linux kernel"
+
   # Check if $linux_version is provided
   if [ -z "$linux_version" ]; then
     # No version, use master
@@ -239,8 +242,6 @@ git_kernel() { # [ optional ] linux_version, [ optional ] linux_repo
     # No linux repo, use mainline
     linux_repo="https://github.com/torvalds/linux.git"
   fi
-
-  print_info "Downloading linux kernel"
 
   # Clone the specified Linux kernel version from the provided repository
   if [ ! -d "linux" ]; then
@@ -317,9 +318,13 @@ build_kernel() { # rpi_arch, cross_compiler, kernel_config, [ true | false ] deb
   change_config_option "CONFIG_LOCALVERSION" "-$KERNEL_NAME"
   # sed -i "s/^CONFIG_LOCALVERSION=\".*\"/CONFIG_LOCALVERSION=\"-v8-uartioctl-cc-$kernel_name\"/" .config
 
-  build_kernel_show_progressbar $rpi_arch $cross_compiler
+  if [[ ! $ARG_NO_BUILD ]]; then
+    build_kernel_show_progressbar $rpi_arch $cross_compiler
+  fi
 
-  install_kernel_show_progressbar $rpi_arch $cross_compiler
+  if [[ ! $ARG_NO_INSTALL ]]; then
+    install_kernel_show_progressbar $rpi_arch $cross_compiler
+  fi
 
   cd ../
 }
@@ -330,28 +335,31 @@ copy_kernel_to_rpi() { #rpi-arch, boot_mount, root_mount
   local boot_mount="${2:?$(print_error "boot_mount parameter is null or unset")}"
   local root_mount="${3:?$(print_error "root_mount parameter is null or unset")}"
 
+  print_info "Installing kernel files to RaspiOS image"
+
   # Copy kernel image
-  cp "linux/arch/$rpi_arch/boot/Image" "$boot_mount/$kernel_name.img"
+  cp "linux/arch/$rpi_arch/boot/Image" "$boot_mount/$KERNEL_NAME.img"
   check_error "Could not copy kernel image to raspios"
   # Copy Device Tree Blobs
   cp "linux/arch/$rpi_arch/boot/dts/broadcom/"*.dtb "$boot_mount/"
   check_error "Could not copy device tree blobs to raspios"
   # Copy Device Tree overlay
-  cp "linux/arch/$rpi_arch/boot/dts/overlays/"*.dtb* "$boot_mount/overlays"
-  check_error "Could not copy device tree overlays to raspios"
+  # fixme: not available with mainline. We COULD include these with a patch from rpi kernel src
+  # cp "linux/arch/$rpi_arch/boot/dts/overlays/"*.dtb* "$boot_mount/overlays"
+  # check_error "Could not copy device tree overlays to raspios"
   # Copy Kernel modules
-  cp -r "linux/build/lib/modules" "$root_mount/lib"
+  echo $ARG_US_PWD | sudo -S  cp -r "linux/build/lib/modules" "$root_mount/lib/modules"
   check_error "Could not copy kernel modules to raspios"
 
   # Set this kernel to the active kernel in config.txt
   if grep -q "^kernel=" "$boot_mount/config.txt"; then
     # Update config.txt to reflect the new kernel image filename
-    sudo sed -i "s|^kernel=.*$|kernel=$kernel_name.img|" "$boot_mount/config.txt"
+    echo $ARG_US_PWD | sudo -S  sed -i "s|^kernel=.*$|kernel=$kernel_name.img|" "$boot_mount/config.txt"
   else
     # If 'kernel' line doesn't exist, append it to config.txt
     echo kernel=$kernel_name.img | sudo tee -a "$boot_mount/config.txt" >/dev/null
   fi
 
-  printf "Kernel files copied to the Raspberry Pi successfully!\n"
+  print_success "Kernel installed to RaspiOS image"
 
 }

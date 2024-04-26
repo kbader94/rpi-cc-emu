@@ -10,7 +10,12 @@
             "name": "Bash-Debug (hardcoded script name)",
             "cwd": "${workspaceFolder}",
             "program": "${workspaceFolder}/main.sh",
-            "args": ["-d", "-v"]
+            "args": [
+                "-v", 
+                "--cleanup-loop-devs",
+                "--password", "{PWHERE}",
+                "--no-interaction"
+            ]
         }
     ]
 }
