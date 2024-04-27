@@ -5,5 +5,7 @@ linux/*
 *.xz
 *.dtb
 *.log
+.vscode/*
 .vscode
 .vscode/launch.json
+

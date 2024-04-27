@@ -12,9 +12,10 @@
             "program": "${workspaceFolder}/main.sh",
             "args": [
                 "-v", 
-                "--cleanup-loop-devs",
-                "--password", "{PWHERE}",
-                "--no-interaction"
+                "--password", "{}",
+                "--no-interaction",
+                "--no-kernel-build",
+                "--no-kernel-install"
             ]
         }
     ]

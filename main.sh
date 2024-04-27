@@ -4,6 +4,10 @@
 . install-latest-qemu.sh
 
 declare SUCCESS='0'
+declare ERROR='1'
+declare TRUE='0'
+declare FALSE='1'
+
 PACKAGES=("git" "bc" "libssl-dev" "flex" "bison" "libncurses-dev" "sshpass" "crossbuild-essential-armhf" "crossbuild-essential-arm64")
 
 # Foreground Colors
@@ -33,17 +37,41 @@ ANSI_RESET='\033[0m'
 ARG_FORCE=false           # force our way through errors
 ARG_VERBOSE=false         # output extra information
 ARG_DEBUG=false           # output commands as executed AKA set -x
-ARG_NO_INTERACTION=false  # No user intaction AKA silent
-ARG_NO_BUILD=false        # skip building kernel
-ARG_NO_INSTALL=false      # skip installing kernel
-ARG_NO_QEMU=false         # skip emulation via qemu
+ARG_NO_INTERACTION=false  # No user interaction AKA silent TODO: this should be no-input, we also might want no-output and silent for both
+ARG_NO_KERNEL_BUILD=false        # skip building kernel
+ARG_NO_Kernel_INSTALL=false      # skip installing kernel
+# TODO: ARG_NO_QEMU=false         # skip emulation via qemu
 ARG_US_PWD=""             # User Password
 ARG_KERNEL_VERSION=""     # Kernel Version
 ARG_RASPIOS_VERSION=""    # Raspios Version
 
-RPI_VERSION=""         # RPI Model Version [ 1-5 ]
-RPI_ARCH=""          # 32 bit = arm, 64 bit =arm64
-RPI_CC=""            # make cross compiler
+# RPI
+RPI_VERSION=""            # RPI Model Version [ 1-5 ]
+RPI_ARCH=""               # 32 bit = arm, 64 bit =arm64
+RPI_CC=""                 # make cross compiler
+RASPIOS_BOOT_MOUNT=""     # Mount point for RaspiOS bootfs
+RASPIOS_ROOT_MOUNT=""     # Mount point for RaspiOS rootfs
+
+usage() {
+  echo "Usage: $0 [options]"
+  echo "Options:"
+  echo "  -h, --help                   Display this help message"
+  echo "  --password <password>        The password for the user executing script, required to install kernel"
+  echo "  --rpi-version <version>      Set the Raspberry Pi version (1-5)"
+  echo "  --raspios-version <version>  Set the Raspberry Pi OS version (bookworm, bullseye, buster, stretch)"
+  echo "  --kernel-version <version>   Set the Linux kernel version (x.y.z)"
+  echo "  -v, --verbose                Enable verbose output mode"
+  echo "  -d, --debug                  Enable script debug mode, equivalent to set -x"
+  echo "  -f, --force                  Ignore errors and force execution of subsequent commands"
+  echo "  --no-interaction             Disables user prompts and uses default parameters when not provided"
+  echo "  --purge                      Purge and free all resources including images, binaries, logs and loop devices"
+  echo "  --cleanup-loop-devs          Unmount and remove loop devices associated with RaspiOS images"
+  echo "  --purge-raspios              Purge RaspiOS images"
+  echo "  --purge-raspios.xz           Purge compressed RaspiOS images"
+  echo "  --purge-kernel               Purge Linux kernel"
+  echo "  --purge-logs                 Purge logs"
+  exit 1
+}
 
 # Print verbose message, only if verbose output is enabled
 print_verbose() {
@@ -66,13 +94,16 @@ print_warning() {
 
 exit_error() {
   if [[ $ARG_FORCE == false ]]; then
+  
     exit 1
   fi
 }
 
 # Print error and exit status 1
 print_error() {
-  printf "${ANSI_RED}[ ERROR ]${ANSI_RESET}: %s\n" "$1"
+  calling_function="${FUNCNAME[1]}"
+  printf "${ANSI_RED}[ ERROR ]${ANSI_RESET} ${calling_function}: %s\n" "$1"
+  printf ""
   exit_error
 }
 
@@ -198,7 +229,6 @@ while [[ $# -gt 0 ]]; do
     ;;
   --raspios-version)
     if [[ -z $2 ]]; then
-      local raspios-version="$2"
       case "$2" in
         bookworm | Bookworm | BookWorm)
           ARG_RASPIOS_VERSION="bookworm"
@@ -245,7 +275,15 @@ while [[ $# -gt 0 ]]; do
   --no-interaction)
     ARG_NO_INTERACTION=true
     ;;
+  --no-kernel-build)
+    ARG_NO_KERNEL_BUILD=true
+    ;;
+  --no-kernel-install)
+    ARG_NO_Kernel_INSTALL=true
+    ;;
+
   --purge | --cleanup-loop-devs)
+    print_error "UNIMPLEMENTED"
     print_info "Unmounting and removing loop devices"
     loop_devices=$(losetup -a | grep "raspios-arm" | cut -d: -f1)
     # Unmount and delete loop devices associated with raspios images
@@ -261,7 +299,7 @@ while [[ $# -gt 0 ]]; do
   --purge | --purge-raspios)
     print_info "Purging RaspiOS"
     rm raspios-arm.img
-    rm rapsios-arm64.img
+    rm raspios-arm64.img
     ;;
   --purge | --purge-raspios.xz)
     print_info "Purging raspios.xz"

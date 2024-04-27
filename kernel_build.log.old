@@ -4,17 +4,17 @@
   CALL    scripts/checksyscalls.sh
   CC      init/version.o
   CC      kernel/sys.o
-  AR      init/built-in.a
   CC      drivers/base/firmware_loader/main.o
-  CC      kernel/module/main.o
+  AR      init/built-in.a
   CC [M]  drivers/auxdisplay/charlcd.o
+  CC      kernel/module/main.o
   CC [M]  drivers/net/bonding/bond_main.o
-  UPD     kernel/config_data
   CC [M]  drivers/net/bonding/bond_procfs.o
-  AR      drivers/base/firmware_loader/built-in.a
-  AR      drivers/base/built-in.a
+  UPD     kernel/config_data
   GZIP    kernel/config_data.gz
   CC [M]  kernel/configs.o
+  AR      drivers/base/firmware_loader/built-in.a
+  AR      drivers/base/built-in.a
   AR      kernel/module/built-in.a
   AR      kernel/built-in.a
   LD [M]  drivers/net/bonding/bonding.o
@@ -31,8 +31,11 @@
   LD      .tmp_vmlinux.kallsyms1
   NM      .tmp_vmlinux.kallsyms1.syms
   KSYMS   .tmp_vmlinux.kallsyms1.S
-  CC [M]  arch/arm64/crypto/chacha-neon.mod.o
   AS      .tmp_vmlinux.kallsyms1.S
+  LD      .tmp_vmlinux.kallsyms2
+  NM      .tmp_vmlinux.kallsyms2.syms
+  KSYMS   .tmp_vmlinux.kallsyms2.S
+  CC [M]  arch/arm64/crypto/chacha-neon.mod.o
   CC [M]  arch/arm64/crypto/poly1305-neon.mod.o
   CC [M]  kernel/configs.mod.o
   CC [M]  mm/z3fold.mod.o
@@ -51,7 +54,8 @@
   CC [M]  fs/nls/nls_cp862.mod.o
   CC [M]  fs/nls/nls_cp863.mod.o
   CC [M]  fs/nls/nls_cp864.mod.o
-  LD      .tmp_vmlinux.kallsyms2
+  AS      .tmp_vmlinux.kallsyms2.S
+  LD      vmlinux
   CC [M]  fs/nls/nls_cp865.mod.o
   CC [M]  fs/nls/nls_cp866.mod.o
   CC [M]  fs/nls/nls_cp869.mod.o
@@ -139,12 +143,12 @@
   CC [M]  crypto/ccm.mod.o
   CC [M]  crypto/chacha20poly1305.mod.o
   CC [M]  crypto/twofish_generic.mod.o
+  NM      System.map
   CC [M]  crypto/twofish_common.mod.o
   CC [M]  crypto/cast_common.mod.o
   CC [M]  crypto/cast5_generic.mod.o
   CC [M]  crypto/chacha_generic.mod.o
   CC [M]  crypto/poly1305_generic.mod.o
-  NM      .tmp_vmlinux.kallsyms2.syms
   CC [M]  crypto/deflate.mod.o
   CC [M]  crypto/authenc.mod.o
   CC [M]  crypto/authencesn.mod.o
@@ -158,19 +162,19 @@
   CC [M]  crypto/algif_skcipher.mod.o
   CC [M]  crypto/algif_rng.mod.o
   CC [M]  crypto/algif_aead.mod.o
-  KSYMS   .tmp_vmlinux.kallsyms2.S
   CC [M]  crypto/zstd.mod.o
   CC [M]  crypto/ecc.mod.o
   CC [M]  crypto/essiv.mod.o
   CC [M]  crypto/ecdh_generic.mod.o
+  SORTTAB vmlinux
   CC [M]  crypto/xor.mod.o
+  OBJCOPY arch/arm64/boot/Image
   CC [M]  crypto/async_tx/async_tx.mod.o
   CC [M]  crypto/async_tx/async_memcpy.mod.o
   CC [M]  crypto/async_tx/async_xor.mod.o
   CC [M]  crypto/async_tx/async_pq.mod.o
   CC [M]  crypto/async_tx/async_raid6_recov.mod.o
   CC [M]  arch/arm64/lib/xor-neon.mod.o
-  AS      .tmp_vmlinux.kallsyms2.S
   CC [M]  lib/math/cordic.mod.o
   CC [M]  lib/crypto/libchacha.mod.o
   CC [M]  lib/crypto/libarc4.mod.o
@@ -185,7 +189,6 @@
   CC [M]  lib/crc8.mod.o
   CC [M]  lib/raid6/raid6_pq.mod.o
   CC [M]  lib/ts_kmp.mod.o
-  LD      vmlinux
   CC [M]  lib/ts_bm.mod.o
   CC [M]  lib/ts_fsm.mod.o
   CC [M]  lib/lru_cache.mod.o
@@ -273,7 +276,6 @@
   CC [M]  drivers/net/mdio/mdio-bitbang.mod.o
   CC [M]  drivers/net/ethernet/microchip/enc28j60.mod.o
   CC [M]  drivers/net/ethernet/qualcomm/qca_7k_common.mod.o
-  NM      System.map
   CC [M]  drivers/net/ethernet/qualcomm/qcaspi.mod.o
   CC [M]  drivers/net/ethernet/qualcomm/qcauart.mod.o
   CC [M]  drivers/net/ethernet/wiznet/w5100.mod.o
@@ -292,11 +294,9 @@
   CC [M]  drivers/net/wireless/ath/carl9170/carl9170.mod.o
   CC [M]  drivers/net/wireless/ath/ath6kl/ath6kl_core.mod.o
   CC [M]  drivers/net/wireless/ath/ath6kl/ath6kl_usb.mod.o
-  SORTTAB vmlinux
   CC [M]  drivers/net/wireless/ath/ar5523/ar5523.mod.o
   CC [M]  drivers/net/wireless/ath/ath.mod.o
   CC [M]  drivers/net/wireless/atmel/at76c50x-usb.mod.o
-  OBJCOPY arch/arm64/boot/Image
   CC [M]  drivers/net/wireless/broadcom/b43/b43.mod.o
   CC [M]  drivers/net/wireless/broadcom/b43legacy/b43legacy.mod.o
   CC [M]  drivers/net/wireless/broadcom/brcm80211/brcmutil/brcmutil.mod.o
@@ -764,8 +764,8 @@
   CC [M]  drivers/hid/hid-roccat-savu.mod.o
   CC [M]  drivers/hid/hid-samsung.mod.o
   CC [M]  drivers/hid/hid-sjoy.mod.o
-  CC [M]  drivers/hid/hid-sony.mod.o
   CC [M]  drivers/hid/hid-speedlink.mod.o
+  CC [M]  drivers/hid/hid-sony.mod.o
   CC [M]  drivers/hid/hid-steam.mod.o
   CC [M]  drivers/hid/hid-sunplus.mod.o
   CC [M]  drivers/hid/hid-gaff.mod.o
@@ -901,8 +901,8 @@
   CC [M]  drivers/iio/temperature/max31856.mod.o
   CC [M]  drivers/iio/trigger/iio-trig-hrtimer.mod.o
   CC [M]  drivers/iio/trigger/iio-trig-interrupt.mod.o
-  CC [M]  drivers/iio/trigger/iio-trig-sysfs.mod.o
   CC [M]  drivers/iio/industrialio.mod.o
+  CC [M]  drivers/iio/trigger/iio-trig-sysfs.mod.o
   CC [M]  drivers/iio/industrialio-configfs.mod.o
   CC [M]  drivers/iio/industrialio-sw-trigger.mod.o
   CC [M]  drivers/mux/mux-core.mod.o
@@ -1067,8 +1067,8 @@
   CC [M]  net/netfilter/xt_tcpudp.mod.o
   CC [M]  net/netfilter/xt_mark.mod.o
   CC [M]  net/netfilter/xt_connmark.mod.o
-  CC [M]  net/netfilter/xt_set.mod.o
   CC [M]  net/netfilter/xt_nat.mod.o
+  CC [M]  net/netfilter/xt_set.mod.o
   CC [M]  net/netfilter/xt_CHECKSUM.mod.o
   CC [M]  net/netfilter/xt_CLASSIFY.mod.o
   CC [M]  net/netfilter/xt_CT.mod.o
@@ -1253,8 +1253,8 @@
   CC [M]  net/bridge/netfilter/ebt_802_3.mod.o
   CC [M]  net/bridge/netfilter/ebt_among.mod.o
   CC [M]  net/bridge/netfilter/ebt_arp.mod.o
-  CC [M]  net/bridge/netfilter/ebt_ip.mod.o
   CC [M]  net/bridge/netfilter/ebt_ip6.mod.o
+  CC [M]  net/bridge/netfilter/ebt_ip.mod.o
   CC [M]  net/bridge/netfilter/ebt_limit.mod.o
   CC [M]  net/bridge/netfilter/ebt_mark_m.mod.o
   CC [M]  net/bridge/netfilter/ebt_pkttype.mod.o
@@ -1792,8 +1792,8 @@
   LD [M]  drivers/usb/serial/option.ko
   LD [M]  drivers/usb/serial/oti6858.ko
   LD [M]  drivers/usb/serial/pl2303.ko
-  LD [M]  drivers/usb/serial/qcserial.ko
   LD [M]  drivers/usb/serial/qcaux.ko
+  LD [M]  drivers/usb/serial/qcserial.ko
   LD [M]  drivers/usb/serial/quatech2.ko
   LD [M]  drivers/usb/serial/safe_serial.ko
   LD [M]  drivers/usb/serial/sierra.ko
@@ -2278,8 +2278,8 @@
   LD [M]  net/sched/cls_cgroup.ko
   LD [M]  net/sched/em_cmp.ko
   LD [M]  net/sched/em_nbyte.ko
-  LD [M]  net/sched/em_meta.ko
   LD [M]  net/sched/em_u32.ko
+  LD [M]  net/sched/em_meta.ko
   LD [M]  net/sched/em_text.ko
   LD [M]  net/sched/em_ipset.ko
   LD [M]  net/netfilter/nfnetlink.ko

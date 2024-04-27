@@ -318,11 +318,11 @@ build_kernel() { # rpi_arch, cross_compiler, kernel_config, [ true | false ] deb
   change_config_option "CONFIG_LOCALVERSION" "-$KERNEL_NAME"
   # sed -i "s/^CONFIG_LOCALVERSION=\".*\"/CONFIG_LOCALVERSION=\"-v8-uartioctl-cc-$kernel_name\"/" .config
 
-  if [[ ! $ARG_NO_BUILD ]]; then
+  if [[ $ARG_NO_KERNEL_BUILD == false ]]; then
     build_kernel_show_progressbar $rpi_arch $cross_compiler
   fi
 
-  if [[ ! $ARG_NO_INSTALL ]]; then
+  if [[ $ARG_NO_KERNEL_INSTALL == false ]]; then
     install_kernel_show_progressbar $rpi_arch $cross_compiler
   fi
 

@@ -32,18 +32,9 @@ get_free_port() {
     # Check if the port is available
     (echo >/dev/tcp/localhost/"$port") >/dev/null 2>&1 || {
       echo $port
-      return
+      return $SUCCESS
     }
   done
-}
-
-is_device_mounted() {
-  local loop_device="$1"
-  if mount | grep -q "$(readlink -f "$loop_device")"; then
-    echo true
-  else
-    echo false
-  fi
 }
 
 # Initiate curl download, monitor progress and update the progress bar
@@ -287,36 +278,118 @@ emulate_kernel() { # qemu_machine, cpu, mem, dtb_location, raspios_image, kernel
 
 }
 
+loop_dev_is_mounted() {
+  local loop_device="$1"
+  if mount | grep -q "$(readlink -f "$loop_device")"; then
+    return $TRUE  # Device is mounted
+  else
+    return $FALSE  # Device is not mounted
+  fi
+}
+
+unmount_loop_dev() {
+  local loop_dev="${1:?$(print_error "loop_dev is null or unset")}"
+
+  # Check if loop device exists
+  if [ ! -e "$loop_dev" ]; then
+    print_error "loop_device doesn't exist"
+    return $ERROR
+  fi
+
+  # Check if mounted
+  if ! loop_dev_is_mounted "$loop_dev"; then
+    print_verbose "$loop_dev is not mounted"
+    return $SUCCESS # loop dev already unmounted
+  fi
+
+  # Get list of processes using the loop device
+  local proc_list=$(sudo lsof "$loop_dev" | awk 'NR>1 {print $2}' | sort -u)
+  for pid in $proc_list; do
+    local process_name=$(ps -p $pid -o comm=)
+    print_error "Cannot unmount: $process_name is using this loop device"
+    # echo $ARG_US_PWD | sudo -S kill -9 "$pid"
+    # check_error "Could not kill process $pid using $loop_device"
+  done
+
+  # Unmount
+  echo $ARG_US_PWD | sudo -S umount -f "$loop_dev"
+
+  # Check if still mounted
+  if loop_dev_is_mounted "$loop_dev"; then
+    return $ERROR
+  else
+    return $SUCCESS
+  fi
+}
+
+delete_loop_dev() {
+  local loop_dev="${1:?$(print_error "loop_dev is null or unset")}"
+
+  # Check if loop device exists
+  if [ ! -e "$loop_dev" ]; then
+    return $SUCCESS # Nothing to do
+  fi
+
+  # Remove loop device
+  echo $ARG_US_PWD | sudo -S losetup -d $loop_dev
+
+  # Check if loop device exists
+  if [ ! -e "$loop_dev" ]; then
+    return $SUCCESS # Nothing to do
+  fi
+
+}
+
+unmount_and_delete_loop_dev() {
+  local loop_dev="${1:?$(print_error "loop_dev is null or unset")}"
+  unmount_loop_dev $loop_dev
+  delete_loop_dev $loop_dev
+}
+
 get_loop_dev_from_img_partition() { # raspios_absolute_location, offset, size
-  local raspios_absolute_location="${1:?$(print_error "raspios_absolute_location parameter is null or unset")}"
-  local offset="${2:?$(print_error "offset is null or unset")}"
-  local size="${3:?$(print_error "size is null or unset")}"
+  local raspios_image="${1:?$(print_error "raspios_image parameter is null or unset")}"
+  local partition_number="${2:?$(print_error "partition_number is null or unset")}"
+  local unmount_other_loop_devs=${3:-false}
+  local raspios_absolute_location=$(readlink -f "$raspios_image")
 
-  # This script seems dumb, but hear me out... The point is to check if raspios is already mounted
-  # BUT mount doesn't have the disk image so losetup must be used to check which loop devices have
-  # raspios.img as a BACK-FILE, with matching offsets and sizes to differentiate bootfs and rootfs
-  # THEN we can check if the loop device is mounted
+  local part_info=$(parted -s "$raspios_image" unit B print | awk '$1 == '"$partition_number"' {print $1,$2,$3,$4,$5,$6}')
+  local offset=$(echo "$part_info" | awk '{print $2}' | tr -d 'B')
+  local size=$(echo "$part_info" | awk '{print $4}' | tr -d 'B')
 
-  # Get existing loop devs with matching backfile, offset, and size
-  # NOTE: removed the match for size, as this changes during raspios_setup image resizing
+  # Get information for any existing loop_devs
   local loop_devs_info=$(losetup --list --output NAME,BACK-FILE,OFFSET,SIZELIMIT)
   local loop_devs=$(echo "$loop_devs_info" | awk -v file_location="$raspios_absolute_location" -v offset="$offset" -v size_limit="$size" '$2 == file_location && $3 == offset {print $1}')
 
-  # Iterate through the list of loop devices with matching back-file, offset, and sizelimit
+  # Get all existing loop_devs for this partition of raspios
   for loop_dev in $loop_devs; do
-    # Check if the loop device is mounted
-    if grep -qs "$loop_dev " /proc/mounts; then
-      # This partition of RaspiOS is already mounted so use existing loop_dev
-      echo $loop_dev
-      return
+
+    # fixme: most of this is still unnecessary.
+    # the following lines never run because this is never called with unmount_other_loop_devs set true
+    # I'm also unsure why we would EVER want to return an already used loop_dev in this context, should be an error?
+
+    # Unmount and delete all loop devs for this partition, we'll create a new loop dev below
+    if [[ $unmount_other_loop_devs == true ]]; then
+      # Forcibly unmount, killing any processes associated with loop_device to ensure unimpeded resizing
+      print_verbose "Unmounting any loop device associated with $raspios_image"
+      unmount_and_delete_loop_dev $loop_dev true
+    else
+      # Otherwise reuse the first existing and mounted loop_dev for this partition of raspios
+      # This MAY? be acceptable for emulation, but to setup raspios all other loop devs must be unmounted and freed
+      if loop_dev_is_mounted $loop_dev; then
+        # This partition of RaspiOS is already mounted so use existing loop_dev
+        echo $loop_dev
+        return
+      fi
     fi
+
   done
 
-  # Otherwise create loop device via udisksctl
+  # If we've made it here, no loop_devices currently exist for the raspios_image(Typical)
+  # Create new loop device via udisksctl
   loop_output=$(udisksctl loop-setup --file "$raspios_image" --offset "$offset" --size "$size" --no-user-interaction)
   # Verify successful loop_dev creation
   if [[ "$loop_output" =~ "Mapped file $raspios_image as" ]]; then
-    # Use this loop device
+    # Use new loop device
     loop_dev=$(echo "$loop_output" | awk '{gsub(/\.$/,""); print $5}')
     echo "$loop_dev"
   else
@@ -327,38 +400,27 @@ get_loop_dev_from_img_partition() { # raspios_absolute_location, offset, size
 
 get_mount_point_from_loop_dev() { # loop_dev
   local loop_dev="${1:?$(print_error "loop_dev parameter is null or unset")}"
+  # udiskctl automatically mounts on first access, force mount to avoid error messages
+  if ! loop_dev_is_mounted $loop_dev ; then
+    udisksctl mount -b $loop_dev
+  fi
+  # Check if loop dev is succesfully mounted
   local mount_point=$(grep -w "$loop_dev" /proc/mounts | awk '{print $2}')
+  if [ -z $mount_point ]; then
+    print_error "Could not mount"
+  fi
   echo $mount_point
 }
 
-# For qemu, in addition to a kernel and dtb's, we need a rootfs
-# We will get our rootfs from the specified RaspiOS.img
-# download the [latest] raspios image and extract
-# mount boot and root partitions
-# enable ssl and create password
-# copy kernel, modules, device tree blobs to raspios.img
-# set kernel as active on raspios.img
-# umount raspios.img
-# Side note: raspios.img is now configured with newly built kernel
-# fixme: this function is getting long and convoluted, future changes should
-# consider breaking it up into subroutines such as get_raspios, mount_raspios, install_kernel_to_raspios , unmount_raspios
-setup_raspios() { # rpi_arch, [optional] raspios_img_filename, [optional] raspios url, [ optional ] rpi_password
-  local rpi_arch=${1:-"arm64"}
-  local raspios_image=${2:-"raspios-$rpi_arch.img"}
-  local raspios_url="$3" # Set below, according to arch
-  local rpi_password=${4:-"raspberry"}
-  local raspios_absolute_location=$(readlink -f "$raspios_image")
-  local boot_loop_dev=""
-  local root_loop_dev=""
-  local boot_mount_point=""
-  local root_mount_point=""
+get_raspios() {
+  local raspios_arch=${1:-"arm64"}
+  local raspios_version=${2:-"buster"}
+  local raspios_url="https://downloads.raspberrypi.com/raspios_oldstable_arm64/images/raspios_oldstable_arm64-2024-03-12/2024-03-12-raspios-bullseye-arm64.img.xz"
 
-  # Set raspios_url depending on arch
+  # Set raspios_url depending on arch, default is bullseye
   if [[ ! $raspios_url ]]; then
     if [[ $rpi_arch == "arm" ]]; then
-      raspios_url="https://downloads.raspberrypi.com/raspios_armhf/images/raspios_armhf-2024-03-15/2024-03-15-raspios-bookworm-armhf.img.xz"
-    else #arm64
-      raspios_url="https://downloads.raspberrypi.com/raspios_arm64/images/raspios_arm64-2024-03-15/2024-03-15-raspios-bookworm-arm64.img.xz"
+      raspios_url="https://downloads.raspberrypi.com/raspios_oldstable_armhf/images/raspios_oldstable_armhf-2024-03-12/2024-03-12-raspios-bullseye-armhf.img.xz"
     fi
   fi
 
@@ -382,64 +444,76 @@ setup_raspios() { # rpi_arch, [optional] raspios_img_filename, [optional] raspio
     print_verbose "Raspios.img already exists, skipping extraction"
   fi
 
+}
+
+resize_raspios() {
+  local raspios_image="${1:?$(print_error "raspios_image parameter is null or unset")}"
+
   # Expand RaspiOS image and rootfs partition
   print_info "Resizing RaspiOS"
   qemu-img resize "$raspios_image" 16G #
   check_error "Could not resize RaspiOS image"
 
-  # Resize Rootfs
+  # Resize Rootfs on disk image
   echo $ARG_US_PWD | sudo -S parted -s "$raspios_image" resizepart 2 100%
   check_error "Could not resize RaspiOS rootfs partition"
 
-  # Get raspios.img bootfs partition info
-  boot_part_info=$(parted -s "$raspios_image" unit B print | awk '$0 ~ /fat32/ {print $1,$2,$3,$4,$5,$6}')
-  boot_start=$(echo "$boot_part_info" | awk '{print $2}' | tr -d 'B')
-  boot_size=$(echo "$boot_part_info" | awk '{print $4}' | tr -d 'B')
-  boot_fs_type=$(echo "$boot_part_info" | awk '{print $6}')
+  # Mount rootfs
+  loop_dev=$(get_loop_dev_from_img_partition $raspios_image 2)
+  mount_point=$(get_mount_point_from_loop_dev $loop_dev)
 
-  # Setup loop device for raspios bootfs and get mount point
-  boot_loop_dev=$(get_loop_dev_from_img_partition $raspios_absolute_location $boot_start $boot_size)
-  boot_mount_point=$(get_mount_point_from_loop_dev $boot_loop_dev)
+  # Ensure it's not mounted before resizing
+  unmount_loop_dev $loop_dev
 
-  # Get rootfs partition info
-  root_part_info=$(parted -s "$raspios_image" unit B print | awk '$0 ~ /ext4/ {print $1,$2,$3,$4,$5,$6}')
-  root_start=$(echo "$root_part_info" | awk '{print $2}' | tr -d 'B')
-  root_size=$(echo "$root_part_info" | awk '{print $4}' | tr -d 'B')
-  root_fs_type=$(echo "$root_part_info" | awk '{print $6}')
-
-  # Setup loop device for raspios rootfs and get mount point
-  root_loop_dev=$(get_loop_dev_from_img_partition $raspios_absolute_location $root_start $root_size)
-  root_mount_point=$(get_mount_point_from_loop_dev $root_loop_dev)
-
-  # Resize rootfs to use all available space
-  echo $ARG_US_PWD | sudo -S resize2fs "$root_loop_dev"
-  check_error "Could not resize RaspiOS rootfs filesystem"
+  # Resize rootfs fs to use all available space on disk image
+  echo $ARG_US_PWD | sudo -S e2fsck -fp $loop_dev
+  echo $ARG_US_PWD | sudo -S resize2fs "$loop_dev"
+  check_error "Could not resize RaspiOS rootfs filesystem from $mount_point @$loop_dev"
 
   # Use partprobe to inform the kernel about partition changes
-  echo $ARG_US_PWD | sudo -S partprobe "$root_loop_dev" # Maybe not necessary?
+  echo $ARG_US_PWD | sudo -S partprobe "$loop_dev" # Maybe not necessary?
   check_error "Could not inform kernel about partition size changes"
 
-  # ****** FIX ME *******
-  # fixme: if this seems repetitive, that's because it is!
-  # We need to mount the root just to resize it, but we need to remount it to
-  # have the resize take affect
-  # ****** FIX ME *******
+  # Detach loop device
+  delete_loop_dev $loop_dev
+  check_error "could not delete $loop_dev"
+  print_success "RaspiOS resized"
 
-  # Unmount root
-  udisksctl unmount --block-device "$root_loop_dev"
-  check_error "could not unmount $root_loop_dev"
-  # Detach root loop devices
-  udisksctl loop-delete --block-device "$root_loop_dev"
-  check_error "could not delete $root_loop_dev"
+}
 
-  # Get rootfs partition info
-  root_part_info=$(parted -s "$raspios_image" unit B print | awk '$0 ~ /ext4/ {print $1,$2,$3,$4,$5,$6}')
-  root_start=$(echo "$root_part_info" | awk '{print $2}' | tr -d 'B')
-  root_size=$(echo "$root_part_info" | awk '{print $4}' | tr -d 'B')
-  root_fs_type=$(echo "$root_part_info" | awk '{print $6}')
+# For qemu, in addition to a kernel and dtb's, we need a rootfs
+# We will get our rootfs from the specified RaspiOS.img
+# download the [latest] raspios image and extract
+# mount boot and root partitions
+# enable ssl and create password
+# copy kernel, modules, device tree blobs to raspios.img
+# set kernel as active on raspios.img
+# umount raspios.img
+# Side note: raspios.img is now configured with newly built kernel
+# fixme: this function is getting long and convoluted, future changes should
+# consider breaking it up into subroutines such as get_raspios, mount_raspios, install_kernel_to_raspios , unmount_raspios
+setup_raspios() { # rpi_arch, [optional] raspios_img_filename, [optional] raspios url, [ optional ] rpi_password
+  local rpi_arch=${1:-"arm64"}
+  local raspios_image=${2:-"raspios-$rpi_arch.img"}
+  local raspios_url="$3" # Set below, according to arch
+  local rpi_password=${4:-"raspberry"}
+  local boot_loop_dev=""
+  local root_loop_dev=""
+  local boot_mount_point=""
+  local root_mount_point=""
 
-  # Setup loop device for raspios rootfs and get mount point
-  root_loop_dev=$(get_loop_dev_from_img_partition $raspios_absolute_location $root_start $root_size)
+  # Download RaspiOS image
+  get_raspios $rpi_arch
+
+  # Resize to base-2 to make qemu happy, plus add room for compiled modules
+  resize_raspios $raspios_image
+
+  # Mount RaspiOS BootFS
+  boot_loop_dev=$(get_loop_dev_from_img_partition $raspios_image 1)
+  boot_mount_point=$(get_mount_point_from_loop_dev $boot_loop_dev)
+
+  # Mount RaspiOS RootFS
+  root_loop_dev=$(get_loop_dev_from_img_partition $raspios_image 2)
   root_mount_point=$(get_mount_point_from_loop_dev $root_loop_dev)
 
   # Set rpi password and enable ssh
@@ -451,16 +525,9 @@ setup_raspios() { # rpi_arch, [optional] raspios_img_filename, [optional] raspio
   # Copy kernel, modules, device tree blobs and set active kernel in config.txt
   copy_kernel_to_rpi "$RPI_ARCH" "$boot_mount_point" "$root_mount_point"
 
-  # Unmount boot and root of RaspiOS
-  udisksctl unmount --block-device "$boot_loop_dev"
-  check_error "could not unmount $boot_loop_dev"
-  udisksctl unmount --block-device "$root_loop_dev"
-  check_error "could not unmount $root_loop_dev"
-  # Detach loop devices
-  udisksctl loop-delete --block-device "$boot_loop_dev"
-  check_error "could not delete $boot_loop_dev"
-  udisksctl loop-delete --block-device "$root_loop_dev"
-  check_error "could not delete $root_loop_dev"
+  unmount_and_delete_loop_dev $boot_loop_dev
+  unmount_and_delete_loop_dev $root_loop_dev
 
   QEMU_SD_LOCATION=$raspios_image
+
 }
