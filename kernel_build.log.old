@@ -55,7 +55,6 @@
   CC [M]  fs/nls/nls_cp863.mod.o
   CC [M]  fs/nls/nls_cp864.mod.o
   AS      .tmp_vmlinux.kallsyms2.S
-  LD      vmlinux
   CC [M]  fs/nls/nls_cp865.mod.o
   CC [M]  fs/nls/nls_cp866.mod.o
   CC [M]  fs/nls/nls_cp869.mod.o
@@ -64,6 +63,7 @@
   CC [M]  fs/nls/nls_euc-jp.mod.o
   CC [M]  fs/nls/nls_cp936.mod.o
   CC [M]  fs/nls/nls_cp949.mod.o
+  LD      vmlinux
   CC [M]  fs/nls/nls_cp950.mod.o
   CC [M]  fs/nls/nls_cp1250.mod.o
   CC [M]  fs/nls/nls_cp1251.mod.o
@@ -143,12 +143,12 @@
   CC [M]  crypto/ccm.mod.o
   CC [M]  crypto/chacha20poly1305.mod.o
   CC [M]  crypto/twofish_generic.mod.o
-  NM      System.map
   CC [M]  crypto/twofish_common.mod.o
   CC [M]  crypto/cast_common.mod.o
   CC [M]  crypto/cast5_generic.mod.o
   CC [M]  crypto/chacha_generic.mod.o
   CC [M]  crypto/poly1305_generic.mod.o
+  NM      System.map
   CC [M]  crypto/deflate.mod.o
   CC [M]  crypto/authenc.mod.o
   CC [M]  crypto/authencesn.mod.o
@@ -165,8 +165,8 @@
   CC [M]  crypto/zstd.mod.o
   CC [M]  crypto/ecc.mod.o
   CC [M]  crypto/essiv.mod.o
-  CC [M]  crypto/ecdh_generic.mod.o
   SORTTAB vmlinux
+  CC [M]  crypto/ecdh_generic.mod.o
   CC [M]  crypto/xor.mod.o
   OBJCOPY arch/arm64/boot/Image
   CC [M]  crypto/async_tx/async_tx.mod.o
@@ -182,8 +182,8 @@
   CC [M]  lib/crypto/libchacha20poly1305.mod.o
   CC [M]  lib/crypto/libcurve25519-generic.mod.o
   CC [M]  lib/crypto/libcurve25519.mod.o
-  CC [M]  lib/crypto/libpoly1305.mod.o
   CC [M]  lib/lz4/lz4_compress.mod.o
+  CC [M]  lib/crypto/libpoly1305.mod.o
   CC [M]  lib/crc-ccitt.mod.o
   CC [M]  lib/crc7.mod.o
   CC [M]  lib/crc8.mod.o
@@ -373,8 +373,8 @@
   CC [M]  drivers/net/usb/cdc_mbim.mod.o
   CC [M]  drivers/net/usb/aqc111.mod.o
   CC [M]  drivers/net/usb/r8153_ecm.mod.o
-  CC [M]  drivers/net/bonding/bonding.mod.o
   CC [M]  drivers/net/ipvlan/ipvlan.mod.o
+  CC [M]  drivers/net/bonding/bonding.mod.o
   CC [M]  drivers/net/dummy.mod.o
   CC [M]  drivers/net/wireguard/wireguard.mod.o
   CC [M]  drivers/net/ifb.mod.o
@@ -733,8 +733,8 @@
   CC [M]  drivers/hid/hid-holtekff.mod.o
   CC [M]  drivers/hid/hid-kensington.mod.o
   CC [M]  drivers/hid/hid-keytouch.mod.o
-  CC [M]  drivers/hid/hid-kye.mod.o
   CC [M]  drivers/hid/hid-lcpower.mod.o
+  CC [M]  drivers/hid/hid-kye.mod.o
   CC [M]  drivers/hid/hid-logitech.mod.o
   CC [M]  drivers/hid/hid-lg-g15.mod.o
   CC [M]  drivers/hid/hid-logitech-dj.mod.o
@@ -764,8 +764,8 @@
   CC [M]  drivers/hid/hid-roccat-savu.mod.o
   CC [M]  drivers/hid/hid-samsung.mod.o
   CC [M]  drivers/hid/hid-sjoy.mod.o
-  CC [M]  drivers/hid/hid-speedlink.mod.o
   CC [M]  drivers/hid/hid-sony.mod.o
+  CC [M]  drivers/hid/hid-speedlink.mod.o
   CC [M]  drivers/hid/hid-steam.mod.o
   CC [M]  drivers/hid/hid-sunplus.mod.o
   CC [M]  drivers/hid/hid-gaff.mod.o
@@ -901,8 +901,8 @@
   CC [M]  drivers/iio/temperature/max31856.mod.o
   CC [M]  drivers/iio/trigger/iio-trig-hrtimer.mod.o
   CC [M]  drivers/iio/trigger/iio-trig-interrupt.mod.o
-  CC [M]  drivers/iio/industrialio.mod.o
   CC [M]  drivers/iio/trigger/iio-trig-sysfs.mod.o
+  CC [M]  drivers/iio/industrialio.mod.o
   CC [M]  drivers/iio/industrialio-configfs.mod.o
   CC [M]  drivers/iio/industrialio-sw-trigger.mod.o
   CC [M]  drivers/mux/mux-core.mod.o
@@ -1067,8 +1067,8 @@
   CC [M]  net/netfilter/xt_tcpudp.mod.o
   CC [M]  net/netfilter/xt_mark.mod.o
   CC [M]  net/netfilter/xt_connmark.mod.o
-  CC [M]  net/netfilter/xt_nat.mod.o
   CC [M]  net/netfilter/xt_set.mod.o
+  CC [M]  net/netfilter/xt_nat.mod.o
   CC [M]  net/netfilter/xt_CHECKSUM.mod.o
   CC [M]  net/netfilter/xt_CLASSIFY.mod.o
   CC [M]  net/netfilter/xt_CT.mod.o
@@ -1253,8 +1253,8 @@
   CC [M]  net/bridge/netfilter/ebt_802_3.mod.o
   CC [M]  net/bridge/netfilter/ebt_among.mod.o
   CC [M]  net/bridge/netfilter/ebt_arp.mod.o
-  CC [M]  net/bridge/netfilter/ebt_ip6.mod.o
   CC [M]  net/bridge/netfilter/ebt_ip.mod.o
+  CC [M]  net/bridge/netfilter/ebt_ip6.mod.o
   CC [M]  net/bridge/netfilter/ebt_limit.mod.o
   CC [M]  net/bridge/netfilter/ebt_mark_m.mod.o
   CC [M]  net/bridge/netfilter/ebt_pkttype.mod.o

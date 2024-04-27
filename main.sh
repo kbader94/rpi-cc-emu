@@ -1,7 +1,10 @@
 #!/bin/bash
+# Imports
+. common.sh
+. progressbar.sh
 . kernel.sh
+. raspios.sh
 . emulate.sh
-. install-latest-qemu.sh
 
 declare SUCCESS='0'
 declare ERROR='1'
@@ -72,133 +75,6 @@ usage() {
   echo "  --purge-logs                 Purge logs"
   exit 1
 }
-
-# Print verbose message, only if verbose output is enabled
-print_verbose() {
-  if [[ $ARG_VERBOSE == true ]]; then
-    printf "${ANSI_LIGHT_YELLOW}[ INFO ]${ANSI_RESET} %s\n" "$1"
-  fi
-}
-
-print_success() {
-  printf "${ANSI_GREEN}[ SUCCESS ]${ANSI_RESET} %s\n" "$1"
-}
-
-print_info() {
-  printf "[ INFO ] %s\n" "$1"
-}
-
-print_warning() {
-  printf "${ANSI_YELLOW}[ WARNING ]${ANSI_RESET} %s\n" "$1"
-}
-
-exit_error() {
-  if [[ $ARG_FORCE == false ]]; then
-  
-    exit 1
-  fi
-}
-
-# Print error and exit status 1
-print_error() {
-  calling_function="${FUNCNAME[1]}"
-  printf "${ANSI_RED}[ ERROR ]${ANSI_RESET} ${calling_function}: %s\n" "$1"
-  printf ""
-  exit_error
-}
-
-# Check if last command was successful, otherwise print_error
-check_error() {
-  if [ $? -ne 0 ]; then
-    print_error "$1"
-  fi
-}
-
-# Check if last command was successful, otherwise print_warning
-check_warning() {
-  if [ $? -ne 0 ]; then
-    print_warning "$1"
-  fi
-}
-
-# Package dependency check
-check_packages() {
-  for pkg in "${PACKAGES[@]}"; do
-    if ! dpkg -l "$pkg" &>/dev/null; then
-      printf "Installing $pkg\n"
-      echo $ARG_US_PWD | sudo -S  apt-get install -y $pkg
-    fi
-  done
-  printf "All required packages are installed.\n"
-  return 0
-}
-
-# Function to calculate the length of a string
-str_length() {
-  local str="$1"
-  local length=${#str}
-  echo $length
-}
-
-# Check whether variable is integer
-is_integer() {
-  local var="$1"
-  if [[ $var =~ ^[0-9]+$ ]]; then
-    echo true
-  else
-    echo false
-  fi
-}
-
-# Check whether variable is float
-is_float() {
-  local value="$1"
-  # Regular expression to match a float number
-  local float_regex='^[0-9]+([.][0-9]+)?$'
-  if [[ $value =~ $float_regex ]]; then
-    return 0 # True
-  else
-    return 1 # False
-  fi
-}
-
-# Update progress to 100 and skip line
-complete_progressbar() {
-  update_progressbar 100
-  printf "\n"
-}
-
-# Function to update progress with a progress bar
-update_progressbar() { # float progress, [ optional ] str text, [ optional ] color=ANSI_BLUE, [ optional ] size=50
-  local progress="$1"
-  local text="$2"              # Text of progress bar
-  local color=${3:-$ANSI_BLUE} # Color of progress bar
-  local length=${4:-50}        # Length of the progress bar
-  local bar=""                 # String to store the progress bar
-
-  # Calculate how many chars to fill with color
-  local progress_int=$(printf "%.0f" "$progress")
-  local progress_decimal=$(echo "scale=6; $progress / 100" | bc)
-  local float_filled_chars=$(echo "scale=6; $progress_decimal * $length" | bc)
-  local filled_chars=$(printf "%.0f" "$float_filled_chars")
-
-  # Create the progress bar string with blue background
-  bar+=$ANSI_BG_GREEN # ANSI escape code for blue background
-  for ((i = 0; i < filled_chars; i++)); do
-    bar+=" "
-  done
-  bar+=$ANSI_RESET # Reset color
-  for ((i = filled_chars; i < length; i++)); do
-    bar+=" "
-  done
-
-  # Print the progress bar with carriage return to overwrite the previous line
-  echo -en "\r[${bar}] ${progress_int}%"
-}
-
-###########################################################
-#####################   ENTRY  POINT   ####################
-###########################################################
 
 # Script should not be run with sudo
 if [ "$(id -u)" -eq 0 ]; then
@@ -323,6 +199,8 @@ while [[ $# -gt 0 ]]; do
   esac
   shift
 done
+
+# Done parsing arguments, begin main execution
 
 # Prompt for Raspberry Pi version
 while [[ -z $RPI_VERSION ]]; do
